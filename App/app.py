@@ -1,20 +1,25 @@
-#171
-
-from dash import Dash, html, dcc, Input, Output, Patch, clientside_callback, callback
-import plotly.express as px
-import plotly.io as pio
+from dash import Dash, html, dcc, Input, Output, clientside_callback, callback
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
-from dash_bootstrap_templates import load_figure_template
 import pandas as pd
 from datetime import datetime, timedelta
+import joblib
+import numpy as np
+import os
 
-# adds templates to plotly.io
-load_figure_template(["minty", "minty_dark"])
-
-df = px.data.gapminder()
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.MINTY, dbc.icons.FONT_AWESOME])
+
+# Load the model (or create a placeholder if not found)
+model_path = 'pm25_prediction_model.joblib'
+try:
+    if os.path.exists(model_path):
+        model = joblib.load(model_path)
+        model_loaded = True
+    else:
+        model_loaded = False
+except:
+    model_loaded = False
 
 color_mode_switch = html.Span(
     [
@@ -25,12 +30,12 @@ color_mode_switch = html.Span(
 )
 
 # Create initial PM2.5 prediction figure showing only today and 7 days ahead
-def create_prediction_figure(template_name="minty"):
+def create_prediction_figure(dark_mode=False):
     # Generate only 2 dates: today and 7 days ahead
     today = datetime.today().strftime('%Y-%m-%d')
     day_7 = (datetime.today() + timedelta(days=6)).strftime('%Y-%m-%d')
     dates = [today, day_7]
-    
+    print(day_7.split("-")[1])
     # Sample values for today and day 7
     pm25_values = [25, 25]
     
@@ -42,12 +47,36 @@ def create_prediction_figure(template_name="minty"):
         name='PM2.5 Prediction'
     ))
     
+    # Use built-in plotly templates
+    template_name = "plotly_dark" if dark_mode else "plotly"
+    
+    # Set background color based on dark mode
+    bg_color = "#333" if dark_mode else "#fff"
+    text_color = "#fff" if dark_mode else "#333"
+    
     fig.update_layout(
         title='PM2.5 Prediction: Today vs. 7 Days Ahead',
         xaxis_title='Date',
         yaxis_title='PM2.5 (μg/m³)',
-        template=template_name
+        template=template_name,
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(color=text_color)
     )
+    
+    # Format x-axis to show only the 2 dates
+    fig.update_xaxes(
+        tickmode='array',
+        tickvals=dates,
+        ticktext=["วันเริ่มต้น", "7 วันข้างหน้า"]
+    )
+    
+    # Add colored regions for PM2.5 levels
+    fig.add_hrect(y0=0, y1=12, line_width=0, fillcolor="green", opacity=0.1)
+    fig.add_hrect(y0=12, y1=35.4, line_width=0, fillcolor="yellow", opacity=0.1)
+    fig.add_hrect(y0=35.4, y1=55.4, line_width=0, fillcolor="orange", opacity=0.1)
+    fig.add_hrect(y0=55.4, y1=150.4, line_width=0, fillcolor="red", opacity=0.1)
+    fig.add_hrect(y0=150.4, y1=250.4, line_width=0, fillcolor="purple", opacity=0.1)
     
     return fig
 
@@ -55,64 +84,71 @@ prediction_fig = create_prediction_figure()
 
 # Layout with sidebar and main content
 app.layout = dbc.Container([
-    html.H3(["PM2.5 Prediction Dashboard: วันนี้ vs 7 วันข้างหน้า"], className="bg-primary text-white p-2 mb-4"),
+    dbc.Row([
+        dbc.Col([
+            html.H3(["PM2.5 Prediction Dashboard: วันนี้ vs 7 วันข้างหน้า"], className="bg-primary text-white p-2 mb-4"),
+        ])
+    ]),
     dbc.Row([
         # Sidebar with inputs
         dbc.Col([
-            html.Div([
-                html.H4("Input Parameters", className="mb-3"),
-                
-                html.Label("วันเริ่มต้น:", className="fw-bold mt-3"),
-                dcc.DatePickerSingle(
-                    id='date-picker',
-                    date=datetime.today().date(),
-                    display_format='YYYY-MM-DD',
-                    className="mb-3 w-100"
-                ),
-                
-                html.Label("PM2.5 ปัจจุบัน (μg/m³):", className="fw-bold"),
-                dcc.Input(
-                    id='current-pm25-input',
-                    type='number',
-                    placeholder='Enter current PM2.5...',
-                    value=25,
-                    min=0,
-                    className="mb-3 w-100"
-                ),
-                
-                html.Label("อุณหภูมิ (°C):", className="fw-bold"),
-                dcc.Input(
-                    id='temperature-input',
-                    type='number',
-                    placeholder='Enter temperature...',
-                    value=25,
-                    className="mb-3 w-100"
-                ),
-                
-                html.Label("ความชื้น (%):", className="fw-bold"),
-                dcc.Input(
-                    id='humidity-input',
-                    type='number',
-                    placeholder='Enter humidity...',
-                    value=60,
-                    min=0,
-                    max=100,
-                    className="mb-3 w-100"
-                ),
-                
-                html.Div([
+            dbc.Card([
+                dbc.CardHeader("Input Parameters", className="fw-bold"),
+                dbc.CardBody([
+                    html.Label("วันเริ่มต้น:", className="fw-bold mt-2"),
+                    dcc.DatePickerSingle(
+                        id='date-picker',
+                        date=datetime.today().date(),
+                        display_format='DD/MM/YYYY',
+                        className="mb-3 w-100"
+                    ),
+                    
+                    html.Label("PM2.5 ปัจจุบัน (μg/m³):", className="fw-bold"),
+                    dbc.Input(
+                        id='current-pm25-input',
+                        type='number',
+                        placeholder='Enter current PM2.5...',
+                        value=25,
+                        min=0,
+                        className="mb-3"
+                    ),
+                    
+                    html.Label("อุณหภูมิ (°C):", className="fw-bold"),
+                    dbc.Input(
+                        id='temperature-input',
+                        type='number',
+                        placeholder='Enter temperature...',
+                        value=25,
+                        className="mb-3"
+                    ),
+                    
+                    html.Label("ความชื้น (%):", className="fw-bold"),
+                    dbc.Input(
+                        id='humidity-input',
+                        type='number',
+                        placeholder='Enter humidity...',
+                        value=60,
+                        min=0,
+                        max=100,
+                        className="mb-3"
+                    ),
+                    
                     dbc.Button("สร้างการพยากรณ์", id="predict-button", color="primary", className="w-100 mt-3"),
-                ]),
-                
-                html.Div([
-                    html.H5("สถานะโมเดล:", className="mt-4"),
-                    html.Div(id="model-status", children="พร้อมทำนาย", className="fst-italic")
-                ]),
-                
-                html.Div([
-                    color_mode_switch
-                ], className="mt-4 pt-2 border-top")
-            ], className="p-3 border rounded")
+                    
+                    html.Hr(),
+                    
+                    html.Div([
+                        html.H5("สถานะโมเดล:", className="mb-2"),
+                        html.Div(id="model-status", 
+                                children=f"{'โมเดลพร้อมทำนาย' if model_loaded else 'ไม่พบโมเดล (ใช้การจำลองแทน)'}", 
+                                className="fst-italic")
+                    ]),
+                    
+                    html.Div([
+                        color_mode_switch
+                    ], className="mt-4 pt-2 border-top")
+                ])
+            ])
         ], width=4),
         
         # Main content with prediction graph
@@ -139,56 +175,70 @@ app.layout = dbc.Container([
      Input("color-mode-switch", "value")]
 )
 def update_prediction(n_clicks, date, current_pm25, temperature, humidity, dark_mode):
-    if n_clicks is None:
-        # Initial load
-        template_name = "minty" if not dark_mode else "minty_dark"
-        return create_prediction_figure(template_name), "พร้อมทำนาย"
+    # Handle the case when inputs are None
+    if None in [date, current_pm25, temperature, humidity]:
+        dark_mode_value = dark_mode if dark_mode is not None else False
+        return create_prediction_figure(dark_mode_value), f"{'โมเดลพร้อมทำนาย' if model_loaded else 'ไม่พบโมเดล (ใช้การจำลองแทน)'}"
     
-    # This is a placeholder for your model integration
-    def predict_pm25(date, current_pm25, temp, humidity):
-        import random
-        
-        # Start date (today)
+    # Parse date
+    try:
         start_date = datetime.strptime(date, '%Y-%m-%d')
+    except:
+        # Use today's date if parsing fails
+        start_date = datetime.today()
         
-        # Only predict today and 7 days ahead
-        today = start_date.strftime('%Y-%m-%d')
-        day_7 = (start_date + timedelta(days=6)).strftime('%Y-%m-%d')
-        dates = [today, day_7]
-        
-        # Today's value is the current PM2.5
-        today_value = current_pm25
-        
-        # Calculate day 7 value based on inputs
-        # Temperature effect: higher temps might increase PM2.5
-        temp_effect = (temp - 25) * 0.2
-        
-        # Humidity effect: higher humidity might decrease PM2.5 (precipitation)
-        humidity_effect = (humidity - 50) * -0.1
-        
-        # Random variation for forecast
-        variation = random.uniform(-8, 8)
-        
-        # Day 7 prediction with some relation to today's value
-        day_7_value = today_value * 0.6 + 0.4 * (today_value + temp_effect + humidity_effect + variation)#แก้ตรงนี้
-        day_7_value = max(5, min(80, day_7_value))  # Keep within reasonable bounds
-        
-        values = [today_value, day_7_value]
-        
-        return dates, values
+    day_7_date = start_date + timedelta(days=6)
     
-    # Get predictions for today and day 7 only
-    dates, pm25_values = predict_pm25(date, current_pm25, temperature, humidity)
+    # Format dates for display
+    today_str = start_date.strftime('%Y-%m-%d')
+    day_7_str = day_7_date.strftime('%Y-%m-%d')
     
-    # Create figure with appropriate template
-    template_name = "minty" if not dark_mode else "minty_dark"
+    # Use the model if loaded, otherwise use simulated prediction
+    if model_loaded:
+        try:
+            # Extract month and day features
+            month = start_date.month
+            day = start_date.day
+            
+            # Prepare input for the model
+            # Adjust these features based on your actual model's requirements
+            X = np.array([[month, day, current_pm25, temperature, humidity]])
+            
+            # Predict PM2.5 for day 7
+            day_7_value = float(model.predict(X)[0])
+            
+            # Keep within reasonable bounds
+            day_7_value = max(5, min(80, day_7_value))
+            
+            model_status = f"ทำนายเสร็จสิ้นด้วยโมเดล: วันที่={date}, PM2.5 ปัจจุบัน={current_pm25}, อุณหภูมิ={temperature}°C, ความชื้น={humidity}%"
+        except Exception as e:
+            # Fallback to simulation if prediction fails
+            day_7_value = simulate_prediction(current_pm25, temperature, humidity)
+            model_status = f"โมเดลทำนายล้มเหลว (ใช้การจำลองแทน): {str(e)}"
+    else:
+        # Use simulated prediction
+        day_7_value = simulate_prediction(current_pm25, temperature, humidity)
+        model_status = f"ทำนายด้วยการจำลอง: วันที่={date}, PM2.5 ปัจจุบัน={current_pm25}, อุณหภูมิ={temperature}°C, ความชื้น={humidity}%"
+    
+    # Use built-in plotly templates
+    template_name = "plotly_dark" if dark_mode else "plotly"
+    
+    # Set background color based on dark mode
+    bg_color = "#333" if dark_mode else "#fff"
+    text_color = "#fff" if dark_mode else "#333"
     
     fig = go.Figure()
+    
+    # Add line and markers
+    dates = [today_str, day_7_str]
+    pm25_values = [current_pm25, day_7_value]
+    
     fig.add_trace(go.Scatter(
         x=dates,
         y=pm25_values,
         mode='lines+markers',
-        name='PM2.5 Prediction'
+        name='PM2.5 Prediction',
+        marker=dict(size=10)
     ))
     
     # Add point annotations to show exact values
@@ -203,20 +253,24 @@ def update_prediction(n_clicks, date, current_pm25, temperature, humidity, dark_
     ))
     
     # Format date for title
-    display_date = datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m/%Y')
+    display_date = start_date.strftime('%d/%m/%Y')
+    display_future_date = day_7_date.strftime('%d/%m/%Y')
     
     fig.update_layout(
-        title=f'การทำนาย PM2.5: {display_date} vs 7 วันข้างหน้า',
+        title=f'การทำนาย PM2.5: {display_date} vs {display_future_date}',
         xaxis_title='วันที่',
         yaxis_title='PM2.5 (μg/m³)',
-        template=template_name
+        template=template_name,
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(color=text_color)
     )
     
     # Format x-axis to show only the 2 dates
     fig.update_xaxes(
         tickmode='array',
         tickvals=dates,
-        ticktext=["วันเริ่มต้น", "7 วันข้างหน้า"]
+        ticktext=[display_date, display_future_date]
     )
     
     # Add colored regions for PM2.5 levels
@@ -226,13 +280,32 @@ def update_prediction(n_clicks, date, current_pm25, temperature, humidity, dark_
     fig.add_hrect(y0=55.4, y1=150.4, line_width=0, fillcolor="red", opacity=0.1)
     fig.add_hrect(y0=150.4, y1=250.4, line_width=0, fillcolor="purple", opacity=0.1)
     
-    return fig, f"ทำนายเสร็จสิ้น: วันที่={date}, PM2.5 ปัจจุบัน={current_pm25}, อุณหภูมิ={temperature}°C, ความชื้น={humidity}%"
+    return fig, model_status
 
-# Dark mode toggle
+def simulate_prediction(current_pm25, temperature, humidity):
+    """Simulate a prediction when the model is not available"""
+    import random
+    
+    # Temperature effect: higher temps might increase PM2.5
+    temp_effect = (temperature - 25) * 0.2
+    
+    # Humidity effect: higher humidity might decrease PM2.5 (precipitation)
+    humidity_effect = (humidity - 50) * -0.1
+    
+    # Random variation for forecast
+    variation = random.uniform(-8, 8)
+    
+    # Day 7 prediction with some relation to today's value
+    day_7_value = current_pm25 * 0.6 + 0.4 * (current_pm25 + temp_effect + humidity_effect + variation)
+    day_7_value = max(5, min(80, day_7_value))  # Keep within reasonable bounds
+    
+    return day_7_value
+
+# Dark mode toggle - fix the implementation
 clientside_callback(
     """
-    (switchOn) => {
-       document.documentElement.setAttribute('data-bs-theme', switchOn ? 'light' : 'dark');  
+    function(switchOn) {
+       document.documentElement.setAttribute('data-bs-theme', switchOn ? 'dark' : 'light');  
        return window.dash_clientside.no_update
     }
     """,
