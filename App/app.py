@@ -35,7 +35,6 @@ def create_prediction_figure(dark_mode=False):
     today = datetime.today().strftime('%Y-%m-%d')
     day_7 = (datetime.today() + timedelta(days=6)).strftime('%Y-%m-%d')
     dates = [today, day_7]
-    print(day_7.split("-")[1])
     # Sample values for today and day 7
     pm25_values = [25, 25]
     
@@ -197,12 +196,20 @@ def update_prediction(n_clicks, date, current_pm25, temperature, humidity, dark_
     if model_loaded:
         try:
             # Extract month and day features
+            dayofweek = start_date.weekday()
             month = start_date.month
             day = start_date.day
             
             # Prepare input for the model
             # Adjust these features based on your actual model's requirements
-            X = np.array([[month, day, current_pm25, temperature, humidity]])
+            X = pd.DataFrame({
+                'humidity': [humidity],
+                'temperature': [temperature],
+                'dayofweek': [dayofweek],
+                'month': [month],
+                'day': [day],
+                'pm25': [current_pm25],
+            })
             
             # Predict PM2.5 for day 7
             day_7_value = float(model.predict(X)[0])
