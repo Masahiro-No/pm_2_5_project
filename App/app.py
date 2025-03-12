@@ -264,7 +264,6 @@ air_quality_levels = [
 
 # Create initial PM2.5 prediction figure
 def create_prediction_figure(dark_mode=True):
-    day_7 = (datetime.today() + timedelta(days=6)).strftime('%Y-%m-%d')
     predicted_pm25 = 20
     
     fig = go.Figure()
@@ -561,7 +560,7 @@ def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
             html.Ul(default_health_tips),
             default_weather
         )
-    
+        
     # Parse date
     try:
         start_date = datetime.strptime(date, '%Y-%m-%d')
