@@ -1,4 +1,4 @@
-from dash import Dash, html, dcc, Input, Output, clientside_callback, callback
+from dash import Dash, html, dcc, Input, Output, clientside_callback, callback,State
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -7,21 +7,24 @@ import joblib
 import numpy as np
 import os
 import random
-
+from pycaret.regression import *
+from pycaret import *
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, dbc.icons.FONT_AWESOME])
-
 # ใส่โมเดลที่นี้
-model_path = 'pm25_prediction_model.joblib'
+model_path = 'models/Fisrt_models.pkl'
 try:
     if os.path.exists(model_path):
         model = joblib.load(model_path)
         model_loaded = True
+        print('ดีดี')
     else:
         model_loaded = False
-except:
+        print('ไม่ดีดี')
+except Exception as e:
+    print(f"Error loading model: {e}")
     model_loaded = False
-
+df = pd.read_csv("clean_data.csv", parse_dates=["timestamp"], index_col="timestamp")
 # Custom CSS for animations and styling
 app.index_string = '''
 <!DOCTYPE html>
@@ -260,7 +263,6 @@ air_quality_levels = [
 
 # Create initial PM2.5 prediction figure
 def create_prediction_figure(dark_mode=True):
-    day_7 = (datetime.today() + timedelta(days=6)).strftime('%Y-%m-%d')
     predicted_pm25 = 20
     
     fig = go.Figure()
@@ -313,6 +315,8 @@ def create_prediction_figure(dark_mode=True):
 
 prediction_fig = create_prediction_figure()
 
+
+    
 # Generate health tips based on PM2.5 level
 def get_health_tips(pm25_level):
     general_tips = [
@@ -526,8 +530,6 @@ app.layout = dbc.Container([
     ])
     
 ], fluid=True, className="mt-3")
-
-# Callback to update prediction graph and other UI elements based on inputs
 @callback(
     [Output("prediction-graph", "figure"),
      Output("model-status", "children"),
@@ -535,18 +537,16 @@ app.layout = dbc.Container([
      Output("health-tips-content", "children"),
      Output("weather-indicator", "children")
      ],
-    [Input("predict-button", "n_clicks"),
-     Input("date-picker", "date"),
-     Input("temperature-input", "value"),
-     Input("humidity-input", "value"),
-     Input("color-mode-switch", "value")]
-)
+    [Input("predict-button", "n_clicks")],  # เหลือเพียง n_clicks เป็น Input
+    [State("date-picker", "date"),
+     State("temperature-input", "value"),
+     State("humidity-input", "value"),
+     State("color-mode-switch", "value")]
+    )
 def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
-    # Default values for countdown
-
-    
-    # Handle the case when inputs are None
-    if None in [date, temperature, humidity]:
+    # เช็คว่ามีการกดปุ่มจริงๆ หรือไม่
+    if n_clicks is None or None in [date, temperature, humidity]:
+        # สร้างค่าเริ่มต้นเมื่อยังไม่มีการกดปุ่ม
         dark_mode_value = dark_mode if dark_mode is not None else True
         default_weather = get_weather_icon(25, 60)
         default_air_status = html.Div([
@@ -555,22 +555,109 @@ def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
         default_health_tips = [html.Li("กรุณากดปุ่มพยากรณ์เพื่อดูคำแนะนำสุขภาพ")]
         return (
             create_prediction_figure(dark_mode_value), 
-            f"{'โมเดลพร้อมทำนาย' if model_loaded else 'ไม่พบโมเดล (ใช้การจำลองแทน)'}", 
+            "รอการทำนายจากโมเดล", 
             default_air_status,
             html.Ul(default_health_tips),
-            default_weather,
-            days,
-            hours,
-            minutes
+            default_weather
         )
-    
+        
     # Parse date
     try:
         start_date = datetime.strptime(date, '%Y-%m-%d')
     except:
         # Use today's date if parsing fails
         start_date = datetime.today()
+    
+    # เก็บข้อมูลปัจจุบันและข้อมูลในอดีต
+    latest_input = pd.DataFrame({
+        'temperature': [temperature],
+        'humidity': [humidity],
+        'dayofweek': [start_date.weekday()],
+        'month': [start_date.month],
+        'day': [start_date.day]
+    })
+    
+    # ใช้ข้อมูลในอดีตสำหรับอ้างอิง
+    historical_df = df.copy()
+    
+    # สร้างช่วงเวลาในอนาคต 7 วัน (169 ชั่วโมง)
+    future_dates = pd.date_range(start=start_date, periods=169, freq='H')[1:]
+    future_predictions = []
+    
+    # สร้าง lag features จากการหาค่าเฉลี่ยและส่วนเบี่ยงเบนมาตรฐานจากข้อมูลในอดีต
+    for lag in range(1, 8):
+        lag_col = f'pm_2_5_lag_{lag}'
         
+        # หาข้อมูลที่มีวันและเดือนเดียวกัน
+        historical_data = historical_df[(historical_df.index.month == start_date.month) & 
+                                        (historical_df.index.day == start_date.day)]
+        
+        # ถ้าไม่มีข้อมูลในวันเดียวกัน ให้ใช้ข้อมูลในเดือนเดียวกัน
+        if len(historical_data) == 0:
+            historical_data = historical_df[historical_df.index.month == start_date.month]
+        
+        # ถ้าไม่มีข้อมูลในเดือนเดียวกัน ให้ใช้ข้อมูลทั้งหมด
+        if len(historical_data) == 0:
+            historical_data = historical_df
+        
+        # คำนวณค่าเฉลี่ยและส่วนเบี่ยงเบนมาตรฐาน
+        if lag_col in historical_data.columns:
+            mean_val = historical_data[lag_col].mean()
+            std_val = historical_data[lag_col].std() if not pd.isna(historical_data[lag_col].std()) else 2.0
+            
+            # สุ่มค่าจากค่าเฉลี่ย +/- ส่วนเบี่ยงเบนมาตรฐาน
+            random_val = mean_val + random.uniform(-1, 1) * std_val
+            latest_input[lag_col] = random_val
+        else:
+            # ถ้าไม่มีคอลัมน์นี้ในข้อมูลประวัติ ใช้ค่าเริ่มต้น
+            latest_input[lag_col] = 0
+    
+    model_status = ""
+    
+    # ทำนายค่า PM2.5 สำหรับแต่ละชั่วโมงในอนาคต
+    for date in future_dates:
+        # อัปเดตคุณลักษณะตามเวลา
+        latest_input['dayofweek'] = date.dayofweek
+        latest_input['month'] = date.month
+        latest_input['day'] = date.day
+        
+        # อัปเดตคุณลักษณะสภาพอากาศโดยใช้ค่าเฉลี่ยจากข้อมูลในอดีต
+        latest_input['temperature'] = get_estimated_value(historical_df, date, 'temperature')
+        latest_input['humidity'] = get_estimated_value(historical_df, date, 'humidity')
+        
+        # ทำนายค่า PM2.5
+        if model_loaded:
+            try:
+                pred = float(predict_model(model, data=latest_input)['prediction_label'][0])
+                model_status = f"ทำนายเสร็จสิ้นด้วยโมเดล: วันที่={date.strftime('%Y-%m-%d')}, อุณหภูมิ={latest_input['temperature'].values[0]:.1f}°C, ความชื้น={latest_input['humidity'].values[0]:.1f}%"
+            except Exception as e:
+                # Fallback หากการทำนายล้มเหลว
+                pred = get_estimated_value(historical_df, date, 'pm_2_5')
+                model_status = f"โมเดลทำนายล้มเหลว (ใช้ข้อมูลในอดีต): {str(e)}"
+        else:
+            # ใช้ข้อมูลในอดีตหากไม่มีโมเดล
+            pred = get_estimated_value(historical_df, date, 'pm_2_5')
+            model_status = f"ทำนายด้วยข้อมูลในอดีต: วันที่={date.strftime('%Y-%m-%d')}, อุณหภูมิ={latest_input['temperature'].values[0]:.1f}°C, ความชื้น={latest_input['humidity'].values[0]:.1f}%"
+        
+        # เก็บค่าทำนาย
+        future_predictions.append((date, pred))
+        
+        # อัปเดต lag features
+        for lag in range(7, 1, -1):
+            latest_input[f'pm_2_5_lag_{lag}'] = latest_input[f'pm_2_5_lag_{lag-1}']
+        latest_input['pm_2_5_lag_1'] = pred
+    
+    # แปลงเป็น DataFrame
+    future_df = pd.DataFrame(future_predictions, columns=['timestamp', 'pm_2_5'])
+    future_df.set_index('timestamp', inplace=True)
+    
+    # เฉลี่ยเป็นรายวัน
+    daily_future_df = future_df.resample('D').mean()
+    
+    # แสดงเฉพาะวันที่ 7 (วันสุดท้าย) ของการทำนาย
+    seventh_day_prediction = daily_future_df.iloc[6:7]  # ดัชนี 6 คือวันที่ 7 (เริ่มจาก 0)
+    predicted_value = float(seventh_day_prediction['pm_2_5'].values[0])
+    
     # Calculate days until prediction date
     day_7_date = start_date + timedelta(days=6)
     
@@ -578,40 +665,7 @@ def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
     display_future_date = day_7_date.strftime('%d/%m/%Y')
     
     # Get weather icon
-    weather_icon = get_weather_icon(temperature, humidity)
-    
-    # Use the model if loaded, otherwise use simulated prediction
-    if model_loaded:
-        try:
-            # Extract month, day features
-            dayofweek = start_date.weekday()
-            month = start_date.month
-            day = start_date.day
-            
-            # Prepare input for the model
-            X = pd.DataFrame({
-                'humidity': [humidity],
-                'temperature': [temperature],
-                'dayofweek': [dayofweek],
-                'month': [month],
-                'day': [day]
-            })
-            
-            # Predict PM2.5 for day 7
-            predicted_value = float(model.predict(X)[0])
-            
-            # Keep within reasonable bounds
-            predicted_value = max(5, min(250, predicted_value))
-            
-            model_status = f"ทำนายเสร็จสิ้นด้วยโมเดล: วันที่={date}, อุณหภูมิ={temperature}°C, ความชื้น={humidity}%"
-        except Exception as e:
-            # Fallback to simulation if prediction fails
-            predicted_value = simulate_prediction(temperature, humidity, start_date)
-            model_status = f"โมเดลทำนายล้มเหลว (ใช้การจำลองแทน): {str(e)}"
-    else:
-        # Use simulated prediction
-        predicted_value = simulate_prediction(temperature, humidity, start_date)
-        model_status = f"ทำนายด้วยการจำลอง: วันที่={date}, อุณหภูมิ={temperature}°C, ความชื้น={humidity}%"
+    weather_icon = get_weather_icon(latest_input['temperature'].values[0], latest_input['humidity'].values[0])
     
     # Determine air quality level
     air_quality_level = None
@@ -721,43 +775,79 @@ def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
     
     return fig, model_status, air_quality_status, html.Ul(health_tips_elements), weather_icon
 
-def simulate_prediction(temperature, humidity, date):
-    """Simulate a prediction when the model is not available"""
-    # Temperature effect: higher temps might increase PM2.5
-    temp_effect = (temperature - 25) * 0.3
+# ฟังก์ชันช่วยสำหรับการประมาณค่าจากข้อมูลในอดีต
+def get_estimated_value(df, date, column):
+    """
+    หาค่าเฉลี่ยของคอลัมน์ที่ระบุจากข้อมูลในอดีต โดยใช้เงื่อนไขวันและเดือนเดียวกัน
     
-    # Humidity effect: higher humidity might decrease PM2.5 (precipitation)
-    humidity_effect = (humidity - 50) * -0.15
+    Parameters:
+    df (DataFrame): DataFrame ที่มีข้อมูลในอดีต
+    date (Timestamp): วันที่ต้องการประมาณค่า
+    column (str): ชื่อคอลัมน์ที่ต้องการหาค่าเฉลี่ย
     
-    # Seasonal effect (higher in winter, lower in summer)
+    Returns:
+    float: ค่าเฉลี่ยของคอลัมน์ที่ระบุ +/- ค่าสุ่มจากส่วนเบี่ยงเบนมาตรฐาน
+    """
+    # หาข้อมูลที่มีเดือนและวันเดียวกัน
+    historical_data = df[(df.index.month == date.month) & (df.index.day == date.day)]
+    
+    if len(historical_data) > 0:
+        # ถ้ามีข้อมูลในวันและเดือนเดียวกัน
+        mean_val = historical_data[column].mean()
+        std_val = historical_data[column].std() if not pd.isna(historical_data[column].std()) else 2.0
+        return mean_val + random.uniform(-1, 1) * std_val
+    
+    elif len(df[df.index.month == date.month]) > 0:
+        # ถ้าไม่มีข้อมูลในวันเดียวกัน ให้ใช้ข้อมูลในเดือนเดียวกัน
+        month_data = df[df.index.month == date.month]
+        mean_val = month_data[column].mean()
+        std_val = month_data[column].std() if not pd.isna(month_data[column].std()) else 2.0
+        return mean_val + random.uniform(-1, 1) * std_val
+    
+    else:
+        # ถ้าไม่มีข้อมูลที่เกี่ยวข้องเลย ให้ใช้ค่าเฉลี่ยทั้งหมด
+        mean_val = df[column].mean()
+        std_val = df[column].std() if not pd.isna(df[column].std()) else 2.0
+        return mean_val + random.uniform(-1, 1) * std_val
+    
+def simulate_prediction_from_historical(temperature, humidity, date, df):
+    """
+    Simulate a prediction using historical data for the same day/month
+    """
+    # Find data from the same day and month in historical records
     month = date.month
-    seasonal_effect = 0
-    if 11 <= month <= 12 or 1 <= month <= 2:  # Winter
-        seasonal_effect = 20
-    elif 3 <= month <= 5:  # Spring
-        seasonal_effect = 10
-    elif 6 <= month <= 8:  # Summer
-        seasonal_effect = -10
+    day = date.day
+    # Try to get historical records from the same day and month
+    historical_data = df[(df.index.month == month) & (df.index.day == day)]
     
-    # Day of week effect (higher on weekdays due to traffic)
-    day_of_week = date.weekday()
-    weekday_effect = 5 if day_of_week < 5 else -5
+    # If no exact matches, use data from the same month
+    if len(historical_data) == 0:
+        historical_data = df[df.index.month == month]
     
-    # Base value (around 25)
-    base_value = 25
+    # If still no data, use all historical data
+    if len(historical_data) == 0:
+        historical_data = df
     
-    # Random variation
-    variation = random.uniform(-8, 8)
+    # Get the average PM2.5 value from historical data
+    base_pm25 = historical_data['pm_2_5'].mean()
+    std_pm25 = historical_data['pm_2_5'].std() if len(historical_data) > 1 else 5.0
     
-    # Predicted value with environmental factors
-    predicted_value = base_value + temp_effect + humidity_effect + seasonal_effect + weekday_effect + variation
+    # Adjust for temperature difference (comparing to historical average)
+    hist_temp_avg = historical_data['temperature'].mean()
+    temp_factor = (temperature - hist_temp_avg) * 0.3  # Adjust this coefficient as needed
     
-    # Add some randomized extreme events
-    if random.random() < 0.05:  # 5% chance of extreme event
-        extreme_factor = random.uniform(1.5, 2.5)
-        predicted_value *= extreme_factor
+    # Adjust for humidity difference (comparing to historical average)
+    hist_humidity_avg = historical_data['humidity'].mean()
+    humidity_factor = (humidity - hist_humidity_avg) * -0.15  # Negative because higher humidity often reduces PM2.5
     
-    predicted_value = max(5, min(250, predicted_value))  # Keep within reasonable bounds
+    # Random variation to make predictions more realistic
+    random_factor = random.uniform(-1, 1) * std_pm25 * 0.5
+    
+    # Calculate final prediction
+    predicted_value = base_pm25 + temp_factor + humidity_factor + random_factor
+    
+    # Ensure the value is within reasonable bounds
+    predicted_value = max(5.0, min(250.0, predicted_value))
     
     return predicted_value
 
@@ -772,6 +862,7 @@ clientside_callback(
     Output("color-mode-switch", "id"),
     Input("color-mode-switch", "value"),
 )
+
 
 if __name__ == "__main__":
     app.run_server(debug=True)
