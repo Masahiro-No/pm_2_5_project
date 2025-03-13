@@ -1,4 +1,4 @@
-from dash import Dash, html, dcc, Input, Output, clientside_callback, callback
+from dash import Dash, html, dcc, Input, Output, clientside_callback, callback,State
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -11,9 +11,8 @@ from pycaret.regression import *
 from pycaret import *
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, dbc.icons.FONT_AWESOME])
-
 # ใส่โมเดลที่นี้
-model_path = 'models\Fisrt_models.pkl'
+model_path = 'models/Fisrt_models.pkl'
 try:
     if os.path.exists(model_path):
         model = joblib.load(model_path)
@@ -538,15 +537,16 @@ app.layout = dbc.Container([
      Output("health-tips-content", "children"),
      Output("weather-indicator", "children")
      ],
-    [Input("predict-button", "n_clicks"),
-     Input("date-picker", "date"),
-     Input("temperature-input", "value"),
-     Input("humidity-input", "value"),
-     Input("color-mode-switch", "value")]
-)
+    [Input("predict-button", "n_clicks")],  # เหลือเพียง n_clicks เป็น Input
+    [State("date-picker", "date"),
+     State("temperature-input", "value"),
+     State("humidity-input", "value"),
+     State("color-mode-switch", "value")]
+    )
 def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
-    # Handle the case when inputs are None
-    if None in [date, temperature, humidity]:
+    # เช็คว่ามีการกดปุ่มจริงๆ หรือไม่
+    if n_clicks is None or None in [date, temperature, humidity]:
+        # สร้างค่าเริ่มต้นเมื่อยังไม่มีการกดปุ่ม
         dark_mode_value = dark_mode if dark_mode is not None else True
         default_weather = get_weather_icon(25, 60)
         default_air_status = html.Div([
@@ -555,7 +555,7 @@ def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
         default_health_tips = [html.Li("กรุณากดปุ่มพยากรณ์เพื่อดูคำแนะนำสุขภาพ")]
         return (
             create_prediction_figure(dark_mode_value), 
-            f"{'โมเดลพร้อมทำนาย' if model_loaded else 'ไม่พบโมเดล (ใช้การจำลองแทน)'}", 
+            "รอการทำนายจากโมเดล", 
             default_air_status,
             html.Ul(default_health_tips),
             default_weather
@@ -862,6 +862,7 @@ clientside_callback(
     Output("color-mode-switch", "id"),
     Input("color-mode-switch", "value"),
 )
+
 
 if __name__ == "__main__":
     app.run_server(debug=True)
