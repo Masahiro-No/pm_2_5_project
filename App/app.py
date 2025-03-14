@@ -12,7 +12,7 @@ from pycaret import *
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, dbc.icons.FONT_AWESOME])
 # ใส่โมเดลที่นี้
-model_path = 'models/Fisrt_models.pkl'
+model_path = 'models/Update_Fisrt_models.pkl'
 try:
     if os.path.exists(model_path):
         model = joblib.load(model_path)
