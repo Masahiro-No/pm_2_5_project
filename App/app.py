@@ -17,13 +17,14 @@ try:
     if os.path.exists(model_path):
         model = joblib.load(model_path)
         model_loaded = True
-        print('ดีดี')
+        print('success')
     else:
         model_loaded = False
-        print('ไม่ดีดี')
+        print('false')
 except Exception as e:
     print(f"Error loading model: {e}")
     model_loaded = False
+
 df = pd.read_csv("clean_data.csv", parse_dates=["timestamp"], index_col="timestamp")
 # Custom CSS for animations and styling
 app.index_string = '''
@@ -146,29 +147,11 @@ app.index_string = '''
                 transform: scale(1.02);
             }
             
-            .color-mode-container {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin-top: 25px;
-                padding-top: 15px;
-                border-top: 1px solid rgba(255,255,255,0.1);
-            }
-            
-            .fa-moon {
-                color: #a0a0a0;
-                margin-right: 10px;
-            }
-            
-            .fa-sun {
-                color: #ffb347;
-                margin-left: 10px;
-            }
-            
             .animate-pulse {
                 animation: pulse 2s infinite;
             }
             
+
             @keyframes pulse {
                 0% {
                     opacity: 1;
@@ -228,10 +211,49 @@ app.index_string = '''
                 border-radius: 10px;
                 overflow: hidden;
             }
-            
+
             .weather-icon {
                 font-size: 24px;
                 margin-right: 10px;
+            }
+            
+            .dust-container {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 0;
+            }
+
+            .dust-particle {
+                position: absolute;
+                background-color: rgba(255, 255, 255, 0.3);
+                border-radius: 50%;
+                animation: float linear infinite;
+                pointer-events: none;
+            }
+
+            @keyframes float {
+                0% {
+                    transform: translateY(0) rotate(0deg);
+                    opacity: 0.4;
+                }
+                25% {
+                    opacity: 0.8;
+                }
+                50% {
+                    transform: translateY(-100vh) rotate(360deg);
+                    opacity: 0.4;
+                }
+                75% {
+                    opacity: 0.8;
+                }
+                100% {
+                    transform: translateY(-200vh) rotate(720deg);
+                    opacity: 0.4;
+                }
             }
         </style>
     </head>
@@ -246,11 +268,6 @@ app.index_string = '''
 </html>
 '''
 
-color_mode_switch = html.Div([
-    dbc.Label(className="fa fa-moon", html_for="color-mode-switch"),
-    dbc.Switch(id="color-mode-switch", value=True, className="d-inline-block mx-2", persistence=True),
-    dbc.Label(className="fa fa-sun", html_for="color-mode-switch"),
-], className="color-mode-container")
 
 # Air quality descriptions and icons
 air_quality_levels = [
@@ -262,9 +279,8 @@ air_quality_levels = [
 ]
 
 # Create initial PM2.5 prediction figure
-def create_prediction_figure(dark_mode=True):
+def create_prediction_figure():
     predicted_pm25 = 20
-    
     fig = go.Figure()
     
     # Add gauge chart instead of bar chart
@@ -274,9 +290,9 @@ def create_prediction_figure(dark_mode=True):
         domain = {'x': [0, 1], 'y': [0, 1]},
         delta = {'reference': 12, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
         gauge = {
-            'axis': {'range': [None, 250], 'tickwidth': 1, 'tickcolor': "white" if dark_mode else "black"},
+            'axis': {'range': [None, 250], 'tickwidth': 1, 'tickcolor': "white"},
             'bar': {'color': "#6495ED"},
-            'bgcolor': "rgba(0,0,0,0)" if dark_mode else "white",
+            'bgcolor': "rgba(0,0,0,0)",
             'borderwidth': 2,
             'bordercolor': "gray",
             'steps': [
@@ -295,11 +311,11 @@ def create_prediction_figure(dark_mode=True):
     ))
     
     # Use built-in plotly templates
-    template_name = "plotly_dark" if dark_mode else "plotly"
+    template_name = "plotly_dark"
     
     # Set background color based on dark mode
-    bg_color = "rgba(0,0,0,0)" if dark_mode else "#fff"
-    text_color = "#fff" if dark_mode else "#333"
+    bg_color = "rgba(0,0,0,0)"
+    text_color = "#fff"
     
     fig.update_layout(
         title='PM2.5 Prediction for 7 Days Ahead',
@@ -395,6 +411,7 @@ def get_weather_icon(temperature, humidity):
 
 # Layout with sidebar and main content
 app.layout = dbc.Container([
+    dust_particles,
     # Animated header
     dbc.Row([
         dbc.Col([
@@ -483,10 +500,6 @@ app.layout = dbc.Container([
                                 html.Div(id="health-tips-content", className="mt-2")
                             ], title="คำแนะนำสุขภาพ", item_id="health-tips")
                         ], start_collapsed=True, id="tips-accordion", className="tips-accordion mt-3")
-                    ]),
-                    
-                    html.Div([
-                        color_mode_switch
                     ])
                 ])
             ], className="main-card h-100")
@@ -519,7 +532,7 @@ app.layout = dbc.Container([
                                 html.I(className=f"fas {level['icon']} level-icon"),
                                 level['range'] + ": " + level['label']
                             ], className="level-description"),
-                            html.Small(level['desc'], className="text-light-emphasis")
+                            html.Small(level['desc'])
                         ], className="air-quality-indicator py-2 px-3 mb-2", 
                           style={"backgroundColor": level['color']})
                         for level in air_quality_levels
@@ -528,7 +541,7 @@ app.layout = dbc.Container([
             ], className="main-card")
         ], width=9)
     ])
-    
+
 ], fluid=True, className="mt-3")
 @callback(
     [Output("prediction-graph", "figure"),
@@ -537,24 +550,23 @@ app.layout = dbc.Container([
      Output("health-tips-content", "children"),
      Output("weather-indicator", "children")
      ],
-    [Input("predict-button", "n_clicks")],  # เหลือเพียง n_clicks เป็น Input
+    [Input("predict-button", "n_clicks")],
     [State("date-picker", "date"),
      State("temperature-input", "value"),
-     State("humidity-input", "value"),
-     State("color-mode-switch", "value")]
+     State("humidity-input", "value")]  
     )
-def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
+def update_prediction(n_clicks, date, temperature, humidity):
     # เช็คว่ามีการกดปุ่มจริงๆ หรือไม่
     if n_clicks is None or None in [date, temperature, humidity]:
         # สร้างค่าเริ่มต้นเมื่อยังไม่มีการกดปุ่ม
-        dark_mode_value = dark_mode if dark_mode is not None else True
+
         default_weather = get_weather_icon(25, 60)
         default_air_status = html.Div([
             html.H4("กรุณากรอกข้อมูลและกดปุ่มพยากรณ์", className="text-secondary"),
         ])
         default_health_tips = [html.Li("กรุณากดปุ่มพยากรณ์เพื่อดูคำแนะนำสุขภาพ")]
         return (
-            create_prediction_figure(dark_mode_value), 
+            create_prediction_figure(), 
             "รอการทำนายจากโมเดล", 
             default_air_status,
             html.Ul(default_health_tips),
@@ -749,11 +761,10 @@ def update_prediction(n_clicks, date, temperature, humidity, dark_mode):
     ))
     
     # Use built-in plotly templates
-    template_name = "plotly_dark" if dark_mode else "plotly"
+    template_name = "plotly_dark"
     
-    # Set background color based on dark mode
-    bg_color = "rgba(0,0,0,0)" if dark_mode else "#fff"
-    text_color = "#fff" if dark_mode else "#333"
+    bg_color = "rgba(0,0,0,0)"
+    text_color = "#fff"
     
     fig.update_layout(
         template=template_name,
@@ -851,17 +862,7 @@ def simulate_prediction_from_historical(temperature, humidity, date, df):
     
     return predicted_value
 
-# Dark mode toggle
-clientside_callback(
-    """
-    function(switchOn) {
-       document.documentElement.setAttribute('data-bs-theme', switchOn ? 'dark' : 'light');  
-       return window.dash_clientside.no_update
-    }
-    """,
-    Output("color-mode-switch", "id"),
-    Input("color-mode-switch", "value"),
-)
+
 
 
 if __name__ == "__main__":
