@@ -9,7 +9,7 @@ import os
 import random
 from pycaret.regression import *
 from pycaret import *
-
+from plotly.subplots import make_subplots
 app = Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, dbc.icons.FONT_AWESOME])
 # ใส่โมเดลที่นี้
 model_path = 'models/Update_Fisrt_models.pkl'
@@ -281,50 +281,142 @@ air_quality_levels = [
 # Create initial PM2.5 prediction figure
 def create_prediction_figure():
     predicted_pm25 = 20
-    fig = go.Figure()
     
-    # Add gauge chart instead of bar chart
-    fig.add_trace(go.Indicator(
-        mode = "gauge+number+delta",
-        value = predicted_pm25,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        delta = {'reference': 12, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
-        gauge = {
-            'axis': {'range': [None, 250], 'tickwidth': 1, 'tickcolor': "white"},
-            'bar': {'color': "#6495ED"},
-            'bgcolor': "rgba(0,0,0,0)",
-            'borderwidth': 2,
-            'bordercolor': "gray",
-            'steps': [
-                {'range': [0, 12], 'color': 'rgba(0,128,0,0.4)'},
-                {'range': [12, 35.4], 'color': 'rgba(255,255,0,0.4)'},
-                {'range': [35.4, 55.4], 'color': 'rgba(255,165,0,0.4)'},
-                {'range': [55.4, 150.4], 'color': 'rgba(255,0,0,0.4)'},
-                {'range': [150.4, 250.4], 'color': 'rgba(128,0,128,0.4)'},
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': predicted_pm25
+    # Create a figure with subplots - same structure as in update_prediction
+    fig = make_subplots(
+        rows=2, 
+        cols=1,
+        row_heights=[0.65, 0.35],
+        specs=[[{"type": "indicator"}], [{"type": "xy"}]],
+        vertical_spacing=0.15
+    )
+    
+    # Add gauge chart to first row
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=predicted_pm25,
+            domain={'y': [0, 1], 'x': [0.05, 0.95]},
+            title={'text': f"การทำนาย PM2.5 สำหรับ 7 วันข้างหน้า"},
+            gauge={
+                'axis': {'range': [None, 250], 'tickwidth': 1},
+                'bar': {'color': "yellow"},  # Default color for initial display
+                'bgcolor': "rgba(0,0,0,0)",
+                'borderwidth': 2,
+                'bordercolor': "gray",
+                'steps': [
+                    {'range': [0, 12], 'color': 'rgba(0,128,0,0.4)'},
+                    {'range': [12, 35.4], 'color': 'rgba(255,255,0,0.4)'},
+                    {'range': [35.4, 55.4], 'color': 'rgba(255,165,0,0.4)'},
+                    {'range': [55.4, 150.4], 'color': 'rgba(255,0,0,0.4)'},
+                    {'range': [150.4, 250.4], 'color': 'rgba(128,0,128,0.4)'}
+                ],
+                'threshold': {
+                    'line': {'color': "white", 'width': 4},
+                    'thickness': 0.75,
+                    'value': predicted_pm25
+                }
             }
-        }
-    ))
+        ),
+        row=1, col=1
+    )
     
-    # Use built-in plotly templates
+    # Create sample data for line chart
+    start_date = datetime.today().date()
+    daily_dates = [start_date + timedelta(days=i) for i in range(7)]
+    daily_values = [20, 22, 25, 21, 18, 23, 20]  # Sample values for initial display
+    
+    # Add line chart of daily predictions to second row
+    fig.add_trace(
+        go.Scatter(
+            x=[d.strftime('%d/%m') for d in daily_dates],
+            y=daily_values,
+            mode='lines+markers',
+            name='PM2.5',
+            line=dict(
+                color='rgba(78, 115, 223, 1)',
+                width=3,
+                shape='spline',
+                dash='solid'
+            ),
+            marker=dict(
+                size=8,
+                symbol='circle',
+                color=daily_values,
+                colorscale=[
+                    [0, 'rgba(0,128,0,1)'],      # Green
+                    [0.14, 'rgba(255,255,0,1)'],  # Yellow
+                    [0.28, 'rgba(255,165,0,1)'],  # Orange
+                    [0.42, 'rgba(255,0,0,1)'],    # Red
+                    [0.56, 'rgba(128,0,128,1)']   # Purple
+                ],
+                line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
+            ),
+            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<extra></extra>'
+        ),
+        row=2, col=1
+    )
+    
+    # Add reference lines for air quality levels
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=12,
+        x1=1,
+        y1=12,
+        line=dict(color="rgba(0,128,0,1)", width=1, dash="dash"),
+        row=2, col=1,
+        xref="paper"
+    )
+    
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=35.4,
+        x1=1,
+        y1=35.4,
+        line=dict(color="rgba(255,255,0,1)", width=1, dash="dash"),
+        row=2, col=1,
+        xref="paper"
+    )
+    
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=55.4,
+        x1=1,
+        y1=55.4,
+        line=dict(color="rgba(255,165,0,1)", width=1, dash="dash"),
+        row=2, col=1,
+        xref="paper"
+    )
+    
+    # Set template and colors
     template_name = "plotly_dark"
-    
-    # Set background color based on dark mode
     bg_color = "rgba(0,0,0,0)"
     text_color = "#fff"
     
     fig.update_layout(
-        title='PM2.5 Prediction for 7 Days Ahead',
-        template=template_name,
-        paper_bgcolor=bg_color,
-        plot_bgcolor=bg_color,
-        font=dict(color=text_color, family="Kanit"),
-        margin=dict(l=20, r=20, t=60, b=20),
-        height=400
+    template=template_name,
+    paper_bgcolor=bg_color,
+    plot_bgcolor=bg_color,
+    font=dict(color=text_color, family="Kanit"),
+    margin=dict(l=20, r=20, t=50, b=20),
+    height=550,  # Slightly increase overall height
+    showlegend=False
+)
+    
+    # Update x-axis and y-axis of the line chart
+    fig.update_xaxes(
+        title_text="วันที่",
+        gridcolor="rgba(255, 255, 255, 0.1)",
+        row=2, col=1
+    )
+    
+    fig.update_yaxes(
+        title_text="PM2.5 (μg/m³)",
+        gridcolor="rgba(255, 255, 255, 0.1)",
+        row=2, col=1
     )
     
     return fig
@@ -506,6 +598,7 @@ app.layout = dbc.Container([
         ], width=3),
         
         # Main content with prediction graph
+        
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader([
@@ -514,7 +607,7 @@ app.layout = dbc.Container([
                     html.Div(id="weather-indicator", className="float-end")
                 ]),
                 dbc.CardBody([
-                    dcc.Graph(id="prediction-graph", figure=prediction_fig, className="mb-3"),
+                    dcc.Graph(id="prediction-graph", figure=prediction_fig, className="mb-5"),
                     
                     html.Div(id="air-quality-status", className="text-center mt-3 mb-4"),
                 ])
@@ -680,38 +773,32 @@ def update_prediction(n_clicks, date, temperature, humidity):
     weather_icon = get_weather_icon(latest_input['temperature'].values[0], latest_input['humidity'].values[0])
     
     # Determine air quality level
-    air_quality_level = None
     air_quality_color = None
     air_quality_icon = None
     air_quality_label = None
     air_quality_desc = None
     
     if predicted_value <= 12:
-        air_quality_level = "ดี"
         air_quality_color = "green"
         air_quality_icon = "fa-smile"
         air_quality_label = "คุณภาพอากาศดี"
         air_quality_desc = "ปลอดภัยสำหรับทุกคน"
     elif predicted_value <= 35.4:
-        air_quality_level = "ปานกลาง"
         air_quality_color = "yellow"
         air_quality_icon = "fa-meh"
         air_quality_label = "คุณภาพอากาศปานกลาง"
         air_quality_desc = "กลุ่มเสี่ยงควรระวัง"
     elif predicted_value <= 55.4:
-        air_quality_level = "ไม่ดีต่อกลุ่มเสี่ยง"
         air_quality_color = "orange"
         air_quality_icon = "fa-frown"
         air_quality_label = "คุณภาพอากาศไม่ดีต่อกลุ่มเสี่ยง"
         air_quality_desc = "ผู้ที่มีโรคระบบทางเดินหายใจควรหลีกเลี่ยงกิจกรรมกลางแจ้ง"
     elif predicted_value <= 150.4:
-        air_quality_level = "ไม่ดีต่อสุขภาพ"
         air_quality_color = "red"
         air_quality_icon = "fa-angry"
         air_quality_label = "คุณภาพอากาศไม่ดีต่อสุขภาพ"
         air_quality_desc = "ทุกคนควรลดกิจกรรมกลางแจ้ง"
     else:
-        air_quality_level = "ไม่ดีต่อสุขภาพมาก"
         air_quality_color = "purple"
         air_quality_icon = "fa-dizzy"
         air_quality_label = "คุณภาพอากาศไม่ดีต่อสุขภาพมาก"
@@ -732,73 +819,154 @@ def update_prediction(n_clicks, date, temperature, humidity):
     
     # Create gauge chart
     fig = go.Figure()
+
     
-    # Add gauge chart 
-    fig.add_trace(go.Indicator(
-        mode = "gauge+number",
-        value = predicted_value,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"การทำนาย PM2.5 สำหรับวันที่ {display_future_date}"},
-        gauge = {
-            'axis': {'range': [None, 250], 'tickwidth': 1},
-            'bar': {'color': air_quality_color},
-            'bgcolor': "rgba(0,0,0,0)",
-            'borderwidth': 2,
-            'bordercolor': "gray",
-            'steps': [
-                {'range': [0, 12], 'color': 'rgba(0,128,0,0.4)'},
-                {'range': [12, 35.4], 'color': 'rgba(255,255,0,0.4)'},
-                {'range': [35.4, 55.4], 'color': 'rgba(255,165,0,0.4)'},
-                {'range': [55.4, 150.4], 'color': 'rgba(255,0,0,0.4)'},
-                {'range': [150.4, 250.4], 'color': 'rgba(128,0,128,0.4)'},
-            ],
-            'threshold': {
-                'line': {'color': "white", 'width': 4},
-                'thickness': 0.75,
-                'value': predicted_value
+    fig = make_subplots(
+    rows=2, 
+    cols=1,
+    row_heights=[0.65, 0.35],  # Give a bit more height to the gauge
+    specs=[[{"type": "indicator"}], [{"type": "xy"}]],
+    vertical_spacing=0.2  # Increase spacing between subplots
+)
+
+    # Add gauge chart to first row
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=predicted_value,
+            domain={'y': [0, 1], 'x': [0.05, 0.95]},
+            title={
+                'text': f"การทำนาย PM2.5 สำหรับวันที่ {display_future_date}",
+                # Remove the 'y' property - it's not valid
+                'font': {'size': 16},
+                'align': 'center'
+            },
+            gauge={
+                'axis': {'range': [None, 250], 'tickwidth': 1},
+                'bar': {'color': air_quality_color},
+                'bgcolor': "rgba(0,0,0,0)",
+                'borderwidth': 2,
+                'bordercolor': "gray",
+                'steps': [
+                    {'range': [0, 12], 'color': 'rgba(0,128,0,0.4)'},
+                    {'range': [12, 35.4], 'color': 'rgba(255,255,0,0.4)'},
+                    {'range': [35.4, 55.4], 'color': 'rgba(255,165,0,0.4)'},
+                    {'range': [55.4, 150.4], 'color': 'rgba(255,0,0,0.4)'},
+                    {'range': [150.4, 250.4], 'color': 'rgba(128,0,128,0.4)'}
+                ],
+                'threshold': {
+                    'line': {'color': "white", 'width': 4},
+                    'thickness': 0.75,
+                    'value': predicted_value
+                }
             }
-        }
-    ))
-    
+        ),
+        row=1, col=1
+    )
+
+
+    # Prepare data for line chart
+    daily_dates = [start_date + timedelta(days=i) for i in range(7)]
+    daily_values = daily_future_df['pm_2_5'].values
+
+    # Add line chart of daily predictions to second row
+    fig.add_trace(
+        go.Scatter(
+            x=[d.strftime('%d/%m') for d in daily_dates],
+            y=daily_values,
+            mode='lines+markers',
+            name='PM2.5',
+            line=dict(
+                color='rgba(78, 115, 223, 1)',
+                width=3,
+                shape='spline',
+                dash='solid'
+            ),
+            marker=dict(
+                size=8,
+                symbol='circle',
+                color=daily_values,
+                colorscale=[
+                    [0, 'rgba(0,128,0,1)'],      # Green
+                    [0.14, 'rgba(255,255,0,1)'],  # Yellow
+                    [0.28, 'rgba(255,165,0,1)'],  # Orange
+                    [0.42, 'rgba(255,0,0,1)'],    # Red
+                    [0.56, 'rgba(128,0,128,1)']   # Purple
+                ],
+                line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
+            ),
+            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<extra></extra>'
+        ),
+        row=2, col=1
+    )
+
+    # Add reference lines for air quality levels
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=12,
+        x1=1,
+        y1=12,
+        line=dict(color="rgba(0,128,0,1)", width=1, dash="dash"),
+        row=2, col=1,
+        xref="paper"
+    )
+
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=35.4,
+        x1=1,
+        y1=35.4,
+        line=dict(color="rgba(255,255,0,1)", width=1, dash="dash"),
+        row=2, col=1,
+        xref="paper"
+    )
+
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=55.4,
+        x1=1,
+        y1=55.4,
+        line=dict(color="rgba(255,165,0,1)", width=1, dash="dash"),
+        row=2, col=1,
+        xref="paper"
+    )
+
     # Use built-in plotly templates
     template_name = "plotly_dark"
-    
     bg_color = "rgba(0,0,0,0)"
     text_color = "#fff"
-    
+
     fig.update_layout(
-        template=template_name,
-        paper_bgcolor=bg_color,
-        plot_bgcolor=bg_color,
-        font=dict(color=text_color, family="Kanit"),
-        margin=dict(l=20, r=20, t=60, b=20),
-        height=400
+    template=template_name,
+    paper_bgcolor=bg_color,
+    plot_bgcolor=bg_color,
+    font=dict(color=text_color, family="Kanit"),
+    margin=dict(l=20, r=20, t=50, b=20),  # Increase top margin (t) value
+    height=550,  # Slightly increase overall height
+    showlegend=False
+)
+
+
+    # Update x-axis and y-axis of the line chart
+    fig.update_xaxes(
+        title_text="วันที่",
+        gridcolor="rgba(255, 255, 255, 0.1)",
+        row=2, col=1
     )
-    
-    # Add annotation for the air quality level
-    fig.add_annotation(
-        x=0.5,
-        y=0.25,
-        text=f"ระดับอากาศ: {air_quality_level}",
-        showarrow=False,
-        font=dict(size=16)
+
+    fig.update_yaxes(
+        title_text="PM2.5 (μg/m³)",
+        gridcolor="rgba(255, 255, 255, 0.1)",
+        row=2, col=1
     )
     
     return fig, model_status, air_quality_status, html.Ul(health_tips_elements), weather_icon
 
 # ฟังก์ชันช่วยสำหรับการประมาณค่าจากข้อมูลในอดีต
 def get_estimated_value(df, date, column):
-    """
-    หาค่าเฉลี่ยของคอลัมน์ที่ระบุจากข้อมูลในอดีต โดยใช้เงื่อนไขวันและเดือนเดียวกัน
-    
-    Parameters:
-    df (DataFrame): DataFrame ที่มีข้อมูลในอดีต
-    date (Timestamp): วันที่ต้องการประมาณค่า
-    column (str): ชื่อคอลัมน์ที่ต้องการหาค่าเฉลี่ย
-    
-    Returns:
-    float: ค่าเฉลี่ยของคอลัมน์ที่ระบุ +/- ค่าสุ่มจากส่วนเบี่ยงเบนมาตรฐาน
-    """
     # หาข้อมูลที่มีเดือนและวันเดียวกัน
     historical_data = df[(df.index.month == date.month) & (df.index.day == date.day)]
     
@@ -825,4 +993,4 @@ def get_estimated_value(df, date, column):
 
 
 if __name__ == "__main__":
-    app.run_server()
+    app.run_server(debug=True)
