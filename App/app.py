@@ -1,4 +1,4 @@
-from dash import Dash, html, dcc, Input, Output, clientside_callback, callback,State
+from dash import Dash, html, dcc, Input, Output, callback,State
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -11,7 +11,8 @@ from pycaret.regression import *
 from pycaret import *
 from plotly.subplots import make_subplots
 import ephem
-from pycaret.time_series import *
+import pycaret.time_series as pt
+
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, dbc.icons.FONT_AWESOME])
 # โมเดลแรก
@@ -28,10 +29,10 @@ except Exception as e:
     print(f"Error loading model: {e}")
     model_loaded = False
 #โมเดลสอง
-tide_model_path = 'models/Second_models.pkl'
+tide_model_path = 'models/Second_models'
 try:
-    if os.path.exists(tide_model_path):
-        tide_model = joblib.load(tide_model_path)
+    if os.path.exists(tide_model_path+'.pkl'):
+        tide_model = pt.load_model(tide_model_path)
         tide_model_loaded = True
         print('Tide model loaded successfully')
     else:
@@ -306,24 +307,48 @@ def get_thai_season(month):
     else:
         return 'winter'
 
-def prepare_tide_features(date):
-    """Prepare features for tide prediction model"""
-    features = {
-        'day': date.day,
-        'month': date.month,
-        'year': date.year,
-        'moon_phase': get_moon_phase(date),
-        'full_moon_days': 1 if get_moon_phase(date) >= 0.98 else 0,
-        'dark_moon_days': 1 if get_moon_phase(date) <= 0.02 else 0
-    }
+def prepare_tide_features(target_date):
+    """
+    สร้างตารางข้อมูลคุณลักษณะสำหรับการทำนายระดับน้ำ
+    โดยเริ่มจาก 72 ชั่วโมงก่อนวันที่ที่ระบุไปจนถึงวันปัจจุบันที่เวลา 00:00 น.
     
-    # Add season features
-    season = get_thai_season(date.month)
-    features['season_rainy'] = 1 if season == 'rainy' else 0
-    features['season_summer'] = 1 if season == 'summer' else 0
-    features['season_winter'] = 1 if season == 'winter' else 0
+    Args:
+        target_date (datetime): วันที่เป้าหมาย (จะใช้เวลา 00:00 น. ของวันนี้)
     
-    return features
+    Returns:
+        pd.DataFrame: ตารางข้อมูลคุณลักษณะสำหรับ 72 ชั่วโมงย้อนหลัง
+    """
+    # ปรับให้เป็นเวลา 00:00 น. ของวันที่ระบุ
+    current_date = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
+    
+    # สร้างรายการวันที่ย้อนหลัง 72 ชั่วโมง
+    all_dates = [current_date - timedelta(hours=72-i) for i in range(72)]  # รวมเวลา 00:00 ของวันปัจจุบันด้วย
+    
+    # สร้างรายการข้อมูลคุณลักษณะ
+    features_list = []
+    
+    for date in all_dates:
+        features = {
+            'day': date.day,
+            'month': date.month,
+            'year': date.year,
+            'moon_phase': get_moon_phase(date),
+            'full_moon_days': 1 if get_moon_phase(date) >= 0.98 else 0,
+            'dark_moon_days': 1 if get_moon_phase(date) <= 0.02 else 0
+        }
+        
+        # เพิ่มคุณลักษณะของฤดูกาล
+        season = get_thai_season(date.month)
+        features['season_rainy'] = 1 if season == 'rainy' else 0
+        features['season_summer'] = 1 if season == 'summer' else 0
+        features['season_winter'] = 1 if season == 'winter' else 0
+        
+        features_list.append(features)
+    
+    # สร้าง DataFrame จากรายการคุณลักษณะ
+    features_df = pd.DataFrame(features_list, index=all_dates)
+    features_df.index = features_df.index.to_period("H")  # หรือ "D" ถ้าเป็น daily
+    return features_df
 
 # Create initial PM2.5 prediction figure
 def create_prediction_figure():
@@ -471,33 +496,39 @@ def create_prediction_figure():
 prediction_fig = create_prediction_figure()
 
 def create_tide_chart(start_date):
-    """สร้างกราฟทำนายระดับน้ำขึ้น-น้ำลง 4 วัน (วันปัจจุบัน + 3 วันข้างหน้า)"""
+    """สร้างกราฟทำนายระดับน้ำขึ้น-น้ำลง 72 ชั่วโมงข้างหน้า"""
     
-    # สร้างวันที่สำหรับวันปัจจุบัน + 3 วันข้างหน้า
-    dates = [start_date + timedelta(days=i) for i in range(4)]
+    # เตรียมข้อมูลสำหรับการทำนาย
+    features_df = prepare_tide_features(start_date)
     
-    # สร้างการทำนายสำหรับแต่ละวัน (1 ค่าต่อวัน)
-    tide_predictions = []
-    
-    for date in dates:
-        features = prepare_tide_features(date)
-        features_df = pd.DataFrame([features])
-        # ตรวจสอบว่าโมเดลถูกโหลด และใช้ได้หรือไม่
-        if  tide_model_loaded:
-            try:
-                # ทำนายระดับน้ำ
-                prediction = predict_model(tide_model, features_df)
-                tide_level = float(prediction['prediction_label'][0])
-                print("สำเร็จละน้อง")
-            except Exception as e:
-                # ถ้าการทำนายล้มเหลว ให้ใช้ค่าสุ่ม
-                print(f"Tide prediction failed: {e}")
-                tide_level = random.uniform(0.5, 2.5)
-        else:
-            # สร้างข้อมูลระดับน้ำแบบสุ่มถ้าไม่มีโมเดล
-            tide_level = random.uniform(0.5, 2.5)
+    try:
+        # ตรวจสอบว่าโมเดลมีการโหลดแล้วหรือไม่
+        if tide_model_loaded:
+            # ทำนายระดับน้ำด้วยโมเดล
+            # แก้ไขปัญหา Period comparison โดยแปลงข้อมูลก่อนส่งให้โมเดล
+            # สำหรับคอลัมน์ที่เป็น Period หรือชนิดข้อมูลที่เกี่ยวกับเวลา
+            # แปลงเป็นชนิดข้อมูลที่เข้ากันได้กับโมเดล
             
-        tide_predictions.append(tide_level)
+            # แปลง Period เป็นค่าที่สามารถเปรียบเทียบได้ (ถ้ามี)
+            
+            # ทำนายด้วยโมเดล
+            prediction = pt.predict_model(tide_model,fh=72,X=features_df.iloc[:72])
+            
+            # ใช้ค่า prediction_label ทั้งหมดเป็นแกน Y
+            tide_predictions = prediction['y_pred'].tolist()
+            # ใช้เวลาจาก features_df เป็นแกน X
+            prediction_dates = [start_date + timedelta(hours=i) for i in range(72)]
+            print("NICE")
+        else:
+            # ถ้ายังไม่มีการโหลดโมเดล ให้ใช้ค่าสุ่ม
+            print("Model not properly initialized")
+            prediction_dates = [start_date + timedelta(hours=i) for i in range(72)]
+            tide_predictions = [random.uniform(0.5, 2.5) for _ in range(72)]
+    except Exception as e:
+        # ถ้าการทำนายล้มเหลว ให้ใช้ค่าสุ่ม
+        print(f"Tide prediction failed: {e}")
+        prediction_dates = [start_date + timedelta(hours=i) for i in range(72)]
+        tide_predictions = [random.uniform(0.5, 2.5) for _ in range(72)]
     
     # สร้างกราฟ
     fig = go.Figure()
@@ -507,7 +538,7 @@ def create_tide_chart(start_date):
     
     # เพิ่มเส้นสำหรับการทำนาย
     fig.add_trace(go.Scatter(
-        x=[d.strftime('%d/%m') for d in dates],
+        x=[d.strftime('%d/%m %H:%M') for d in prediction_dates],
         y=tide_predictions,
         mode='lines+markers',
         name='ระดับน้ำ',
@@ -522,13 +553,13 @@ def create_tide_chart(start_date):
             color=color,
             line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
         ),
-        hovertemplate='วันที่: %{x}<br>ระดับน้ำ: %{y:.2f} เมตร<extra></extra>'
+        hovertemplate='วันที่-เวลา: %{x}<br>ระดับน้ำ: %{y:.2f} เมตร<extra></extra>'
     ))
     
     # เพิ่มพื้นที่เฉดสีที่สวยงามใต้เส้นกราฟ
     fig.add_trace(go.Scatter(
-        x=[d.strftime('%d/%m') for d in dates],
-        y=[0] * len(dates),
+        x=[d.strftime('%d/%m %H:%M') for d in prediction_dates],
+        y=[0] * len(prediction_dates),
         fill='tonexty',
         fillcolor=f'rgba(0, 191, 255, 0.1)',
         line=dict(color='rgba(0,0,0,0)'),
@@ -537,11 +568,11 @@ def create_tide_chart(start_date):
     ))
     
     # เพิ่มสัญลักษณ์เฟสของดวงจันทร์
-    for i, date in enumerate(dates):
+    for i, date in enumerate(prediction_dates):
         moon_phase = get_moon_phase(date)
         if moon_phase >= 0.98:  # พระจันทร์เต็มดวง
             fig.add_trace(go.Scatter(
-                x=[date.strftime('%d/%m')],
+                x=[date.strftime('%d/%m %H:%M')],
                 y=[tide_predictions[i] + 0.2],  # เหนือเส้นที่สูงที่สุดเล็กน้อย
                 mode='markers',
                 marker=dict(
@@ -557,7 +588,7 @@ def create_tide_chart(start_date):
             ))
         elif moon_phase <= 0.02:  # เดือนมืด
             fig.add_trace(go.Scatter(
-                x=[date.strftime('%d/%m')],
+                x=[date.strftime('%d/%m %H:%M')],
                 y=[tide_predictions[i] + 0.2],  # เหนือเส้นที่สูงที่สุดเล็กน้อย
                 mode='markers',
                 marker=dict(
@@ -575,7 +606,7 @@ def create_tide_chart(start_date):
     # ปรับแต่งเลย์เอาต์
     fig.update_layout(
         title={
-            'text': 'การพยากรณ์ระดับน้ำขึ้น-น้ำลง 3 วัน',
+            'text': 'การพยากรณ์ระดับน้ำขึ้น-น้ำลง 72 ชั่วโมง',
             'y': 0.9,
             'x': 0.5,
             'xanchor': 'center',
@@ -588,11 +619,11 @@ def create_tide_chart(start_date):
         margin=dict(l=20, r=20, t=50, b=20),
         height=350,
         xaxis=dict(
-            title='วันที่',
+            title='วันที่และเวลา',
             gridcolor="rgba(255, 255, 255, 0.1)",
-            tickmode='array',
-            tickvals=[d.strftime('%d/%m') for d in dates],
-            ticktext=["วันนี้", "พรุ่งนี้", "2 วันถัดไป", "3 วันถัดไป"]
+            # แสดงเฉพาะจุดสำคัญทุกๆ 6 ชั่วโมง เพื่อไม่ให้แน่นเกินไป
+            dtick=6 * 60 * 60 * 1000,  # 6 ชั่วโมง ในหน่วยมิลลิวินาที
+            tickformat='%d/%m %H:%M'
         ),
         yaxis=dict(
             title='ระดับน้ำ (เมตร)',
@@ -886,6 +917,7 @@ def update_prediction(n_clicks, date, temperature, humidity):
             html.H4("กรุณากรอกข้อมูลและกดปุ่มพยากรณ์", className="text-secondary"),
         ])
         default_health_tips = [html.Li("กรุณากดปุ่มพยากรณ์เพื่อดูคำแนะนำสุขภาพ")]
+        print(datetime.today())
         default_tide_fig = create_tide_chart(datetime.today())
         default_moon = html.I(className="fas fa-moon text-secondary")
         
