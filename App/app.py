@@ -10,8 +10,11 @@ import random
 from pycaret.regression import *
 from pycaret import *
 from plotly.subplots import make_subplots
+import ephem
+from pycaret.time_series import *
+
 app = Dash(__name__, external_stylesheets=[dbc.themes.CYBORG, dbc.icons.FONT_AWESOME])
-# ใส่โมเดลที่นี้
+# โมเดลแรก
 model_path = 'models/Update_Fisrt_models.pkl'
 try:
     if os.path.exists(model_path):
@@ -24,6 +27,19 @@ try:
 except Exception as e:
     print(f"Error loading model: {e}")
     model_loaded = False
+#โมเดลสอง
+tide_model_path = 'models/Second_models.pkl'
+try:
+    if os.path.exists(tide_model_path):
+        tide_model = joblib.load(tide_model_path)
+        tide_model_loaded = True
+        print('Tide model loaded successfully')
+    else:
+        tide_model_loaded = False
+        print('Tide model not found')
+except Exception as e:
+    print(f"Error loading tide model: {e}")
+    tide_model_loaded = False
 
 df = pd.read_csv("clean_data.csv", parse_dates=["timestamp"], index_col="timestamp")
 # Custom CSS for animations and styling
@@ -277,6 +293,37 @@ air_quality_levels = [
     {"range": "55.4-150.4 μg/m³", "label": "ไม่ดีต่อสุขภาพ", "color": "rgba(255,0,0,0.2)", "icon": "fa-angry", "desc": "ทุกคนควรลดกิจกรรมกลางแจ้ง โดยเฉพาะกลุ่มเสี่ยง"},
     {"range": "150.4-250.4 μg/m³", "label": "ไม่ดีต่อสุขภาพมาก", "color": "rgba(128,0,128,0.2)", "icon": "fa-dizzy", "desc": "หลีกเลี่ยงกิจกรรมกลางแจ้งทั้งหมด พิจารณาใช้หน้ากากอนามัย"}
 ]
+def get_moon_phase(date):
+    moon = ephem.Moon(date)
+    phase = moon.phase / 100  # Adjust the value to be between 0-1
+    return phase
+
+def get_thai_season(month):
+    if month in [3, 4, 5]:
+        return 'summer'
+    elif month in [6, 7, 8, 9, 10]:
+        return 'rainy'
+    else:
+        return 'winter'
+
+def prepare_tide_features(date):
+    """Prepare features for tide prediction model"""
+    features = {
+        'day': date.day,
+        'month': date.month,
+        'year': date.year,
+        'moon_phase': get_moon_phase(date),
+        'full_moon_days': 1 if get_moon_phase(date) >= 0.98 else 0,
+        'dark_moon_days': 1 if get_moon_phase(date) <= 0.02 else 0
+    }
+    
+    # Add season features
+    season = get_thai_season(date.month)
+    features['season_rainy'] = 1 if season == 'rainy' else 0
+    features['season_summer'] = 1 if season == 'summer' else 0
+    features['season_winter'] = 1 if season == 'winter' else 0
+    
+    return features
 
 # Create initial PM2.5 prediction figure
 def create_prediction_figure():
@@ -422,6 +469,164 @@ def create_prediction_figure():
     return fig
 
 prediction_fig = create_prediction_figure()
+
+def create_tide_chart(start_date):
+    """สร้างกราฟทำนายระดับน้ำขึ้น-น้ำลง 4 วัน (วันปัจจุบัน + 3 วันข้างหน้า)"""
+    
+    # สร้างวันที่สำหรับวันปัจจุบัน + 3 วันข้างหน้า
+    dates = [start_date + timedelta(days=i) for i in range(4)]
+    
+    # สร้างการทำนายสำหรับแต่ละวัน (1 ค่าต่อวัน)
+    tide_predictions = []
+    
+    for date in dates:
+        features = prepare_tide_features(date)
+        features_df = pd.DataFrame([features])
+        # ตรวจสอบว่าโมเดลถูกโหลด และใช้ได้หรือไม่
+        if  tide_model_loaded:
+            try:
+                # ทำนายระดับน้ำ
+                prediction = predict_model(tide_model, features_df)
+                tide_level = float(prediction['prediction_label'][0])
+                print("สำเร็จละน้อง")
+            except Exception as e:
+                # ถ้าการทำนายล้มเหลว ให้ใช้ค่าสุ่ม
+                print(f"Tide prediction failed: {e}")
+                tide_level = random.uniform(0.5, 2.5)
+        else:
+            # สร้างข้อมูลระดับน้ำแบบสุ่มถ้าไม่มีโมเดล
+            tide_level = random.uniform(0.5, 2.5)
+            
+        tide_predictions.append(tide_level)
+    
+    # สร้างกราฟ
+    fig = go.Figure()
+    
+    # สีสำหรับเส้นการทำนาย
+    color = 'rgba(0, 191, 255, 1)'
+    
+    # เพิ่มเส้นสำหรับการทำนาย
+    fig.add_trace(go.Scatter(
+        x=[d.strftime('%d/%m') for d in dates],
+        y=tide_predictions,
+        mode='lines+markers',
+        name='ระดับน้ำ',
+        line=dict(
+            color=color,
+            width=3,
+            shape='spline'
+        ),
+        marker=dict(
+            size=8,
+            symbol='circle',
+            color=color,
+            line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
+        ),
+        hovertemplate='วันที่: %{x}<br>ระดับน้ำ: %{y:.2f} เมตร<extra></extra>'
+    ))
+    
+    # เพิ่มพื้นที่เฉดสีที่สวยงามใต้เส้นกราฟ
+    fig.add_trace(go.Scatter(
+        x=[d.strftime('%d/%m') for d in dates],
+        y=[0] * len(dates),
+        fill='tonexty',
+        fillcolor=f'rgba(0, 191, 255, 0.1)',
+        line=dict(color='rgba(0,0,0,0)'),
+        hoverinfo="skip",
+        showlegend=False
+    ))
+    
+    # เพิ่มสัญลักษณ์เฟสของดวงจันทร์
+    for i, date in enumerate(dates):
+        moon_phase = get_moon_phase(date)
+        if moon_phase >= 0.98:  # พระจันทร์เต็มดวง
+            fig.add_trace(go.Scatter(
+                x=[date.strftime('%d/%m')],
+                y=[tide_predictions[i] + 0.2],  # เหนือเส้นที่สูงที่สุดเล็กน้อย
+                mode='markers',
+                marker=dict(
+                    symbol='circle',
+                    size=15,
+                    color='rgba(255, 255, 200, 1)',
+                    line=dict(color='rgba(255, 255, 0, 1)', width=1)
+                ),
+                name='พระจันทร์เต็มดวง',
+                showlegend=False,
+                hoverinfo='text',
+                hovertext='พระจันทร์เต็มดวง'
+            ))
+        elif moon_phase <= 0.02:  # เดือนมืด
+            fig.add_trace(go.Scatter(
+                x=[date.strftime('%d/%m')],
+                y=[tide_predictions[i] + 0.2],  # เหนือเส้นที่สูงที่สุดเล็กน้อย
+                mode='markers',
+                marker=dict(
+                    symbol='circle',
+                    size=15,
+                    color='rgba(30, 30, 30, 1)',
+                    line=dict(color='rgba(100, 100, 100, 1)', width=1)
+                ),
+                name='เดือนมืด',
+                showlegend=False,
+                hoverinfo='text',
+                hovertext='เดือนมืด'
+            ))
+    
+    # ปรับแต่งเลย์เอาต์
+    fig.update_layout(
+        title={
+            'text': 'การพยากรณ์ระดับน้ำขึ้น-น้ำลง 3 วัน',
+            'y': 0.9,
+            'x': 0.5,
+            'xanchor': 'center',
+            'yanchor': 'top'
+        },
+        template='plotly_dark',
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#fff", family="Kanit"),
+        margin=dict(l=20, r=20, t=50, b=20),
+        height=350,
+        xaxis=dict(
+            title='วันที่',
+            gridcolor="rgba(255, 255, 255, 0.1)",
+            tickmode='array',
+            tickvals=[d.strftime('%d/%m') for d in dates],
+            ticktext=["วันนี้", "พรุ่งนี้", "2 วันถัดไป", "3 วันถัดไป"]
+        ),
+        yaxis=dict(
+            title='ระดับน้ำ (เมตร)',
+            gridcolor="rgba(255, 255, 255, 0.1)"
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(0,0,0,0.3)",
+            bordercolor="rgba(255,255,255,0.2)",
+            borderwidth=1
+        )
+    )
+    
+    # เพิ่มคำอธิบายสำหรับการทำนาย
+    fig.add_annotation(
+        x=0.02,
+        y=0.95,
+        xref="paper",
+        yref="paper",
+        text="<b>การพยากรณ์ระดับน้ำ</b>",
+        showarrow=False,
+        font=dict(color=color),
+        bgcolor="rgba(0,0,0,0.5)",
+        bordercolor=color,
+        borderwidth=1,
+        borderpad=4,
+        align="left"
+    )
+    
+    return fig
 
 
     
@@ -633,37 +838,65 @@ app.layout = dbc.Container([
                 ])
             ], className="main-card")
         ], width=9)
+    ]),
+    dbc.Row([
+    dbc.Col([
+        dbc.Card([
+            dbc.CardHeader([
+                html.I(className="fas fa-water mr-2"),
+                "การพยากรณ์ระดับน้ำขึ้น-น้ำลง 4 วัน",
+                html.Span(id="moon-phase-indicator", className="float-end")
+            ]),
+            dbc.CardBody([
+                dcc.Graph(id="tide-chart", className="mb-3"),
+                html.Div([
+                    html.Div([
+                        html.Span("ระดับน้ำ", className="badge bg-info me-2"),
+                    ], className="mb-2"),
+                    html.Small([
+                        html.I(className="fas fa-info-circle me-2"),
+                        "วงกลมสว่าง = พระจันทร์เต็มดวง, วงกลมมืด = เดือนมืด"
+                    ], className="text-muted")
+                ], className="text-center")
+            ])
+        ], className="main-card mb-4")
     ])
-
+        ])
 ], fluid=True, className="mt-3")
+
 @callback(
     [Output("prediction-graph", "figure"),
      Output("model-status", "children"),
      Output("air-quality-status", "children"),
      Output("health-tips-content", "children"),
-     Output("weather-indicator", "children")
-     ],
+     Output("weather-indicator", "children"),
+     Output("tide-chart", "figure"),
+     Output("moon-phase-indicator", "children")],
     [Input("predict-button", "n_clicks")],
     [State("date-picker", "date"),
      State("temperature-input", "value"),
      State("humidity-input", "value")]  
-    )
+)
 def update_prediction(n_clicks, date, temperature, humidity):
     # เช็คว่ามีการกดปุ่มจริงๆ หรือไม่
     if n_clicks is None:
-        # สร้างค่าเริ่มต้นเมื่อยังไม่มีการกดปุ่ม
-
+    # Default values when button hasn't been clicked
         default_weather = get_weather_icon(25, 60)
         default_air_status = html.Div([
             html.H4("กรุณากรอกข้อมูลและกดปุ่มพยากรณ์", className="text-secondary"),
         ])
         default_health_tips = [html.Li("กรุณากดปุ่มพยากรณ์เพื่อดูคำแนะนำสุขภาพ")]
+        default_tide_fig = create_tide_chart(datetime.today())
+        default_moon = html.I(className="fas fa-moon text-secondary")
+        
         return (
             create_prediction_figure(), 
             "รอการทำนายจากโมเดล", 
             default_air_status,
             html.Ul(default_health_tips),
-            default_weather
+            default_weather,
+            default_tide_fig,
+            default_moon
         )
         
     # Parse date
@@ -672,7 +905,20 @@ def update_prediction(n_clicks, date, temperature, humidity):
     except:
         # Use today's date if parsing fails
         start_date = datetime.today()
-    
+
+    tide_fig = create_tide_chart(start_date)
+    moon_phase = get_moon_phase(start_date)
+    if moon_phase >= 0.98:
+        moon_indicator = html.I(className="fas fa-moon text-warning", title="พระจันทร์เต็มดวง")
+    elif moon_phase <= 0.02:
+        moon_indicator = html.I(className="fas fa-moon text-secondary", title="เดือนมืด")
+    else:
+        # Show appropriate moon phase icon
+        if moon_phase < 0.5:
+            moon_indicator = html.I(className="fas fa-moon text-secondary", title=f"ข้างแรม {int(moon_phase * 100)}%")
+        else:
+            moon_indicator = html.I(className="fas fa-moon text-warning", title=f"ข้างขึ้น {int(moon_phase * 100)}%")
+
     # เก็บข้อมูลปัจจุบันและข้อมูลในอดีต
     latest_input = pd.DataFrame({
         'temperature': [temperature],
@@ -963,7 +1209,8 @@ def update_prediction(n_clicks, date, temperature, humidity):
         row=2, col=1
     )
     
-    return fig, model_status, air_quality_status, html.Ul(health_tips_elements), weather_icon
+    return (fig, model_status, air_quality_status, html.Ul(health_tips_elements), 
+            weather_icon, tide_fig, moon_indicator)
 
 # ฟังก์ชันช่วยสำหรับการประมาณค่าจากข้อมูลในอดีต
 def get_estimated_value(df, date, column):
