@@ -905,7 +905,7 @@ def update_prediction(n_clicks, date, temperature, humidity):
     except:
         # Use today's date if parsing fails
         start_date = datetime.today()
-
+    
     tide_fig = create_tide_chart(start_date)
     moon_phase = get_moon_phase(start_date)
     if moon_phase >= 0.98:
