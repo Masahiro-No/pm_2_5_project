@@ -557,7 +557,7 @@ app.layout = dbc.Container([
     )
 def update_prediction(n_clicks, date, temperature, humidity):
     # เช็คว่ามีการกดปุ่มจริงๆ หรือไม่
-    if n_clicks is None or None in [date, temperature, humidity]:
+    if n_clicks is None:
         # สร้างค่าเริ่มต้นเมื่อยังไม่มีการกดปุ่ม
 
         default_weather = get_weather_icon(25, 60)
@@ -820,47 +820,6 @@ def get_estimated_value(df, date, column):
         mean_val = df[column].mean()
         std_val = df[column].std() if not pd.isna(df[column].std()) else 2.0
         return mean_val + random.uniform(-1, 1) * std_val
-    
-def simulate_prediction_from_historical(temperature, humidity, date, df):
-    """
-    Simulate a prediction using historical data for the same day/month
-    """
-    # Find data from the same day and month in historical records
-    month = date.month
-    day = date.day
-    # Try to get historical records from the same day and month
-    historical_data = df[(df.index.month == month) & (df.index.day == day)]
-    
-    # If no exact matches, use data from the same month
-    if len(historical_data) == 0:
-        historical_data = df[df.index.month == month]
-    
-    # If still no data, use all historical data
-    if len(historical_data) == 0:
-        historical_data = df
-    
-    # Get the average PM2.5 value from historical data
-    base_pm25 = historical_data['pm_2_5'].mean()
-    std_pm25 = historical_data['pm_2_5'].std() if len(historical_data) > 1 else 5.0
-    
-    # Adjust for temperature difference (comparing to historical average)
-    hist_temp_avg = historical_data['temperature'].mean()
-    temp_factor = (temperature - hist_temp_avg) * 0.3  # Adjust this coefficient as needed
-    
-    # Adjust for humidity difference (comparing to historical average)
-    hist_humidity_avg = historical_data['humidity'].mean()
-    humidity_factor = (humidity - hist_humidity_avg) * -0.15  # Negative because higher humidity often reduces PM2.5
-    
-    # Random variation to make predictions more realistic
-    random_factor = random.uniform(-1, 1) * std_pm25 * 0.5
-    
-    # Calculate final prediction
-    predicted_value = base_pm25 + temp_factor + humidity_factor + random_factor
-    
-    # Ensure the value is within reasonable bounds
-    predicted_value = max(5.0, min(250.0, predicted_value))
-    
-    return predicted_value
 
 
 
