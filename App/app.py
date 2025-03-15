@@ -1240,4 +1240,4 @@ def get_estimated_value(df, date, column):
 
 
 if __name__ == "__main__":
-    app.run_server()
+    app.run_server(debug=True)
