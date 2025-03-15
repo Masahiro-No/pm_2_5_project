@@ -1,0 +1,14 @@
+pandas
+pycaret
+numpy
+matplotlib
+ephem
+sklearn
+datetime
+scipy
+dash
+plotly
+dash_bootstrap_components
+joblib
+os
+random
