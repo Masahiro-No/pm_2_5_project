@@ -72,5 +72,5 @@ try:
 except Exception as e:
     print(f"Error loading tide model: {e}")
     tide_model_loaded = False
-A=prepare_tide_features(datetime.now())
+A = prepare_tide_features(datetime.now() + timedelta(days=5*365))
 print(predict_model(tide_model,fh=72,X=A.iloc[:72]))
