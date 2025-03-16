@@ -348,6 +348,7 @@ def prepare_tide_features(target_date):
     # สร้าง DataFrame จากรายการคุณลักษณะ
     features_df = pd.DataFrame(features_list, index=all_dates)
     features_df.index = features_df.index.to_period("H")  # หรือ "D" ถ้าเป็น daily
+    features_df.to_csv("mama.csv")
     return features_df
 
 # Create initial PM2.5 prediction figure
@@ -512,9 +513,10 @@ def create_tide_chart(start_date):
             # แปลง Period เป็นค่าที่สามารถเปรียบเทียบได้ (ถ้ามี)
             
             # ทำนายด้วยโมเดล
-            prediction = pt.predict_model(tide_model,fh=72,X=features_df.iloc[:72])
+            prediction = pt.predict_model(tide_model,fh=72,X=features_df.iloc[:73])
             
             # ใช้ค่า prediction_label ทั้งหมดเป็นแกน Y
+            prediction['y_pred'] += -0.4322613425925926
             tide_predictions = prediction['y_pred'].tolist()
             # ใช้เวลาจาก features_df เป็นแกน X
             prediction_dates = [start_date + timedelta(hours=i) for i in range(72)]
@@ -570,10 +572,10 @@ def create_tide_chart(start_date):
     # เพิ่มสัญลักษณ์เฟสของดวงจันทร์
     for i, date in enumerate(prediction_dates):
         moon_phase = get_moon_phase(date)
-        if moon_phase >= 0.98:  # พระจันทร์เต็มดวง
+        if moon_phase >= 0.98:  # พระจันทร์เต็มดวง (Full Moon)
             fig.add_trace(go.Scatter(
                 x=[date.strftime('%d/%m %H:%M')],
-                y=[tide_predictions[i] + 0.2],  # เหนือเส้นที่สูงที่สุดเล็กน้อย
+                y=[tide_predictions[i]+0.2],
                 mode='markers',
                 marker=dict(
                     symbol='circle',
@@ -586,10 +588,10 @@ def create_tide_chart(start_date):
                 hoverinfo='text',
                 hovertext='พระจันทร์เต็มดวง'
             ))
-        elif moon_phase <= 0.02:  # เดือนมืด
+        elif moon_phase <= 0.02:  # เดือนมืด (New Moon)
             fig.add_trace(go.Scatter(
                 x=[date.strftime('%d/%m %H:%M')],
-                y=[tide_predictions[i] + 0.2],  # เหนือเส้นที่สูงที่สุดเล็กน้อย
+                y=[tide_predictions[i] + 0.2],
                 mode='markers',
                 marker=dict(
                     symbol='circle',
@@ -602,7 +604,24 @@ def create_tide_chart(start_date):
                 hoverinfo='text',
                 hovertext='เดือนมืด'
             ))
-    
+        else:
+            gray_value = int(200 - (moon_phase * 150))
+            fig.add_trace(go.Scatter(
+                x=[date.strftime('%d/%m %H:%M')],
+                y=[tide_predictions[i] + 0.2],
+                mode='markers',
+                marker=dict(
+                    symbol='circle',
+                    size=15,
+                    color=f'rgba({gray_value}, {gray_value}, {gray_value}, 0.7)',
+                    line=dict(color='rgba(150, 150, 150, 0.5)', width=1)
+                ),
+                name='จันทร์บางส่วน',
+                showlegend=False,
+                hoverinfo='text',
+                hovertext=f'จันทร์บางส่วน ({moon_phase:.2f})'
+            ))
+        
     # ปรับแต่งเลย์เอาต์
     fig.update_layout(
         title={
@@ -746,10 +765,10 @@ app.layout = dbc.Container([
             html.Div([
                 html.H2([
                     html.I(className="fas fa-wind mr-2"), 
-                    " PM2.5 PREDICTION ", 
+                    " PM2.5 PREDICTION AND TIDE FORECASTING ", 
                     html.Span("SYSTEM", className="text-warning")
                 ], className="mb-0"),
-                html.P("ระบบพยากรณ์คุณภาพอากาศล่วงหน้า 7 วัน", className="mb-0 mt-2 text-light-emphasis")
+                html.P("ระบบพยากรณ์PM2.5 และ นำ้ขึ้นนำลง", className="mb-0 mt-2 text-light-emphasis")
             ], className="dashboard-header text-white text-center")
         ])
     ]),
