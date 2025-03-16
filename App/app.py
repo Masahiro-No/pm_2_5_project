@@ -1203,10 +1203,11 @@ def update_prediction(n_clicks, date, temperature, humidity):
             hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<br>อุณหภูมิ: %{customdata[0]:.1f}°C<br>ความชื้น: %{customdata[1]:.1f}%<extra></extra>',
             # Add customdata to store temperature and humidity values
             customdata=[[daily_future_df.index[i].day, get_estimated_value(historical_df, daily_dates[i], 'temperature'), 
-                    get_estimated_value(historical_df, daily_dates[i], 'humidity')] for i in range(len(daily_dates))]
+            get_estimated_value(historical_df, daily_dates[i], 'humidity')] for i in range(len(daily_dates))]
         ),
         row=2, col=1
     )
+
     # Add reference lines for air quality levels
     fig.add_shape(
         type="line",
