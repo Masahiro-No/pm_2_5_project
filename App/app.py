@@ -425,7 +425,8 @@ def create_prediction_figure():
                 ],
                 line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
             ),
-            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<extra></extra>'
+            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<br>อุณหภูมิ: %{customdata[0]:.1f}°C<br>ความชื้น: %{customdata[1]:.1f}%<extra></extra>',
+            customdata=np.array([[10, 10], [10, 10], [10, 10], [10, 10], [10, 10], [10, 10], [10, 10]])
         ),
         row=2, col=1
     )
@@ -1022,7 +1023,6 @@ def update_prediction(n_clicks, date, temperature, humidity):
             latest_input[lag_col] = 0
     
     model_status = ""
-    
     # ทำนายค่า PM2.5 สำหรับแต่ละชั่วโมงในอนาคต
     for date in future_dates:
         # อัปเดตคุณลักษณะตามเวลา
@@ -1049,15 +1049,17 @@ def update_prediction(n_clicks, date, temperature, humidity):
             model_status = f"ทำนายด้วยข้อมูลในอดีต: วันที่={date.strftime('%Y-%m-%d')}, อุณหภูมิ={latest_input['temperature'].values[0]:.1f}°C, ความชื้น={latest_input['humidity'].values[0]:.1f}%"
         
         # เก็บค่าทำนาย
-        future_predictions.append((date, pred))
+        future_predictions.append((date, latest_input['temperature'].values[0], latest_input['humidity'].values[0], pred))
         
         # อัปเดต lag features
         for lag in range(7, 1, -1):
             latest_input[f'pm_2_5_lag_{lag}'] = latest_input[f'pm_2_5_lag_{lag-1}']
         latest_input['pm_2_5_lag_1'] = pred
-    
+        # Prepare temperature and humidity data for hover information
+
+
     # แปลงเป็น DataFrame
-    future_df = pd.DataFrame(future_predictions, columns=['timestamp', 'pm_2_5'])
+    future_df = pd.DataFrame(future_predictions, columns=['timestamp','temperature','humidity','pm_2_5'])
     future_df.set_index('timestamp', inplace=True)
     
     # เฉลี่ยเป็นรายวัน
@@ -1172,7 +1174,8 @@ def update_prediction(n_clicks, date, temperature, humidity):
     # Prepare data for line chart
     daily_dates = [start_date + timedelta(days=i) for i in range(7)]
     daily_values = daily_future_df['pm_2_5'].values
-
+    temp_data = daily_future_df['temperature'].values
+    humidity_data = daily_future_df['humidity'].values
     # Add line chart of daily predictions to second row
     fig.add_trace(
         go.Scatter(
@@ -1199,11 +1202,10 @@ def update_prediction(n_clicks, date, temperature, humidity):
                 ],
                 line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
             ),
-            # Updated hovertemplate to include temperature and humidity
-            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<br>อุณหภูมิ: %{customdata[0]:.1f}°C<br>ความชื้น: %{customdata[1]:.1f}%<extra></extra>',
-            # Add customdata to store temperature and humidity values
-            customdata=[[daily_future_df.index[i].day, get_estimated_value(historical_df, daily_dates[i], 'temperature'), 
-            get_estimated_value(historical_df, daily_dates[i], 'humidity')] for i in range(len(daily_dates))]
+            # Pass temperature and humidity as customdata
+            customdata=np.column_stack((temp_data, humidity_data)),
+            # Access customdata in the hovertemplate
+            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<br>อุณหภูมิ: %{customdata[0]:.1f}°C<br>ความชื้น: %{customdata[1]:.1f}%<extra></extra>'
         ),
         row=2, col=1
     )
