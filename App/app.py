@@ -29,10 +29,10 @@ except Exception as e:
     print(f"Error loading model: {e}")
     model_loaded = False
 #โมเดลสอง
-tide_model_path = 'models/Second_models'
+tide_model_path = 'models/whatif_second_models.pkl'
 try:
-    if os.path.exists(tide_model_path+'.pkl'):
-        tide_model = pt.load_model(tide_model_path)
+    if os.path.exists(tide_model_path):
+        tide_model = joblib.load(tide_model_path)
         tide_model_loaded = True
         print('Tide model loaded successfully')
     else:
@@ -514,9 +514,9 @@ def create_tide_chart(start_date):
             
             # ทำนายด้วยโมเดล
             prediction = pt.predict_model(tide_model,fh=72,X=features_df.iloc[:73])
-            
+            # Adjust start_date to 00:00
+            start_date = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)
             # ใช้ค่า prediction_label ทั้งหมดเป็นแกน Y
-            prediction['y_pred'] += -0.4322613425925926
             tide_predictions = prediction['y_pred'].tolist()
             # ใช้เวลาจาก features_df เป็นแกน X
             prediction_dates = [start_date + timedelta(hours=i) for i in range(72)]
@@ -532,15 +532,20 @@ def create_tide_chart(start_date):
         prediction_dates = [start_date + timedelta(hours=i) for i in range(72)]
         tide_predictions = [random.uniform(0.5, 2.5) for _ in range(72)]
     
+    # สร้าง tick values สำหรับแกน x ทุก 6 ชั่วโมง
+    tick_indices = list(range(0, 72, 6))  # เลือกทุกๆ 6 ชั่วโมง (0, 6, 12, ...)
+    tick_values = [prediction_dates[i] for i in tick_indices]
+    tick_texts = [d.strftime('%d/%m %H:%M') for d in tick_values]
+    
     # สร้างกราฟ
     fig = go.Figure()
     
     # สีสำหรับเส้นการทำนาย
     color = 'rgba(0, 191, 255, 1)'
     
-    # เพิ่มเส้นสำหรับการทำนาย
+    # เพิ่มเส้นสำหรับการทำนาย - ใช้ datetime objects โดยตรง ไม่แปลงเป็นสตริง
     fig.add_trace(go.Scatter(
-        x=[d.strftime('%d/%m %H:%M') for d in prediction_dates],
+        x=prediction_dates,  # ใช้ค่า datetime จริง
         y=tide_predictions,
         mode='lines+markers',
         name='ระดับน้ำ',
@@ -555,12 +560,12 @@ def create_tide_chart(start_date):
             color=color,
             line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
         ),
-        hovertemplate='วันที่-เวลา: %{x}<br>ระดับน้ำ: %{y:.2f} เมตร<extra></extra>'
+        hovertemplate='วันที่-เวลา: %{x|%d/%m %H:%M}<br>ระดับน้ำ: %{y:.2f} เมตร<extra></extra>'
     ))
     
     # เพิ่มพื้นที่เฉดสีที่สวยงามใต้เส้นกราฟ
     fig.add_trace(go.Scatter(
-        x=[d.strftime('%d/%m %H:%M') for d in prediction_dates],
+        x=prediction_dates,  # ใช้ค่า datetime จริง
         y=[0] * len(prediction_dates),
         fill='tonexty',
         fillcolor=f'rgba(0, 191, 255, 0.1)',
@@ -574,7 +579,7 @@ def create_tide_chart(start_date):
         moon_phase = get_moon_phase(date)
         if moon_phase >= 0.98:  # พระจันทร์เต็มดวง (Full Moon)
             fig.add_trace(go.Scatter(
-                x=[date.strftime('%d/%m %H:%M')],
+                x=[date],  # ใช้ค่า datetime จริง
                 y=[tide_predictions[i]+0.2],
                 mode='markers',
                 marker=dict(
@@ -590,7 +595,7 @@ def create_tide_chart(start_date):
             ))
         elif moon_phase <= 0.02:  # เดือนมืด (New Moon)
             fig.add_trace(go.Scatter(
-                x=[date.strftime('%d/%m %H:%M')],
+                x=[date],  # ใช้ค่า datetime จริง
                 y=[tide_predictions[i] + 0.2],
                 mode='markers',
                 marker=dict(
@@ -607,7 +612,7 @@ def create_tide_chart(start_date):
         else:
             gray_value = int(200 - (moon_phase * 150))
             fig.add_trace(go.Scatter(
-                x=[date.strftime('%d/%m %H:%M')],
+                x=[date],  # ใช้ค่า datetime จริง
                 y=[tide_predictions[i] + 0.2],
                 mode='markers',
                 marker=dict(
@@ -640,9 +645,11 @@ def create_tide_chart(start_date):
         xaxis=dict(
             title='วันที่และเวลา',
             gridcolor="rgba(255, 255, 255, 0.1)",
-            # แสดงเฉพาะจุดสำคัญทุกๆ 6 ชั่วโมง เพื่อไม่ให้แน่นเกินไป
-            dtick=6 * 60 * 60 * 1000,  # 6 ชั่วโมง ในหน่วยมิลลิวินาที
-            tickformat='%d/%m %H:%M'
+            # กำหนด tick values และ tick text แบบชัดเจน
+            tickmode='array',
+            tickvals=tick_values,
+            ticktext=tick_texts,
+            tickangle=30  # เอียงตัวอักษรเพื่อให้อ่านง่ายขึ้น
         ),
         yaxis=dict(
             title='ระดับน้ำ (เมตร)',
@@ -1192,7 +1199,11 @@ def update_prediction(n_clicks, date, temperature, humidity):
                 ],
                 line=dict(width=1, color='rgba(255, 255, 255, 0.8)')
             ),
-            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<extra></extra>'
+            # Updated hovertemplate to include temperature and humidity
+            hovertemplate='วันที่: %{x}<br>PM2.5: %{y:.1f} μg/m³<br>อุณหภูมิ: %{customdata[0]:.1f}°C<br>ความชื้น: %{customdata[1]:.1f}%<extra></extra>',
+            # Add customdata to store temperature and humidity values
+            customdata=[[daily_future_df.index[i].day, get_estimated_value(historical_df, daily_dates[i], 'temperature'), 
+            get_estimated_value(historical_df, daily_dates[i], 'humidity')] for i in range(len(daily_dates))]
         ),
         row=2, col=1
     )
