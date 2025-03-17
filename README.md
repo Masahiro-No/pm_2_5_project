@@ -1,7 +1,7 @@
 # pm_2_5_project test
 **First model : PM2.5 prediction 7 days**
 - The code of first model in the file name : test_regression2.ipynb
-- First Model in : models/First_model.pkl
+- First Model in : models/Update_Fisrt_models.pkl
 
 **Second model : Tidal Level prediction 7 days**
 - The code of second model in the file name : tidal_usetime copy.ipynb
